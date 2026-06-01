@@ -105,6 +105,12 @@ _STATE_INVARIANTS = [
                  location_test="prop_speculative_rollback_equivalent", severity="high",
                  run_command=["cargo", "test", "-p", "cowboy-storage",
                               "prop_speculative_rollback_equivalent"]),
+    InvariantDef(id="state.root_reflects_committed_set", domain="state-consensus",
+                 spec_ref="CIP-4", executor_kind="test", location_repo="node",
+                 location_path="storage/src/state_invariants.rs",
+                 location_test="prop_root_reflects_committed_set", severity="high",
+                 run_command=["cargo", "test", "-p", "cowboy-storage",
+                              "prop_root_reflects_committed_set"]),
 ]
 
 

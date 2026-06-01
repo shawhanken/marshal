@@ -54,6 +54,7 @@ def test_node_storage_change_surfaces_state_invariants():
     ids = [i.id for i in invs]
     assert "state.root_consistent_propose_verify_report" in ids
     assert "state.speculative_rollback_equivalent" in ids
+    assert "state.root_reflects_committed_set" in ids
 
 
 def test_node_chain_change_surfaces_state_invariants():
