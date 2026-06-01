@@ -66,6 +66,23 @@ CONTRACTS = [
 
 _CONTRACT_BY_ID = {c.id: c for c in CONTRACTS}
 
+_CONTRACT_INVARIANTS = {
+    "contract.tx_encoding_roundtrip": InvariantDef(
+        id="contract.tx_encoding_roundtrip", domain="cross-repo", spec_ref="CIP-?",
+        executor_kind="conformance-vector", location_repo="node",
+        location_path="types/src/transaction.rs", location_test="tx_encoding_golden_vectors",
+        severity="high",
+        run_command=["cargo", "test", "-p", "cowboy-types", "tx_encoding_golden_vectors",
+                     "--", "--exact"]),
+    "contract.runner_types_serde": InvariantDef(
+        id="contract.runner_types_serde", domain="cross-repo", spec_ref="C-1",
+        executor_kind="conformance-vector", location_repo="node",
+        location_path="runner/src/types.rs", location_test="runner_types_serde_compat",
+        severity="high",
+        run_command=["cargo", "test", "-p", "cowboy-node-runner", "runner_types_serde_compat",
+                     "--", "--exact"]),
+}
+
 
 class CowboyPack:
     @property
@@ -73,9 +90,17 @@ class CowboyPack:
         return "cowboy"
 
     def list_invariants(self, scope: dict) -> list[InvariantDef]:
-        if scope.get("repo") != "node":
-            return []
-        return list(_ECON_INVARIANTS)
+        out = []
+        if scope.get("repo") == "node":
+            out.extend(_ECON_INVARIANTS)
+        seen = {i.id for i in out}
+        for cid in self.contracts_hit(scope):
+            for inv_id in _CONTRACT_BY_ID[cid].verify_invariants:
+                inv = _CONTRACT_INVARIANTS.get(inv_id)
+                if inv and inv.id not in seen:
+                    out.append(inv)
+                    seen.add(inv.id)
+        return out
 
     def classify(self, scope: dict) -> str:
         return self.classify_detailed(scope)["tier"]

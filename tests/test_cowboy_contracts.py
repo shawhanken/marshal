@@ -27,3 +27,21 @@ def test_unrelated_change_hits_nothing():
     hit = pack.contracts_hit({"repo": "node",
                               "diff_paths": ["rpc/src/handlers.rs"]})
     assert hit == []
+
+
+def test_wallet_change_surfaces_tx_contract_invariant():
+    pack = CowboyPack()
+    invs = pack.list_invariants({"repo": "wallet",
+                                 "diff_paths": ["src/tx/encode.js"]})
+    ids = [i.id for i in invs]
+    assert "contract.tx_encoding_roundtrip" in ids
+    # 该契约不变量本体住在 node
+    inv = next(i for i in invs if i.id == "contract.tx_encoding_roundtrip")
+    assert inv.location_repo == "node"
+
+
+def test_node_econ_change_still_lists_econ_invariants():
+    pack = CowboyPack()
+    invs = pack.list_invariants({"repo": "node",
+                                 "diff_paths": ["execution/src/execution/transaction.rs"]})
+    assert "econ.fee_conservation" in [i.id for i in invs]
