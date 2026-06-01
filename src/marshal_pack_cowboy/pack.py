@@ -69,14 +69,14 @@ _CONTRACT_BY_ID = {c.id: c for c in CONTRACTS}
 
 _CONTRACT_INVARIANTS = {
     "contract.tx_encoding_roundtrip": InvariantDef(
-        id="contract.tx_encoding_roundtrip", domain="cross-repo", spec_ref="CIP-?",
+        id="contract.tx_encoding_roundtrip", domain="cross-repo", spec_ref="WP",
         executor_kind="conformance-vector", location_repo="node",
         location_path="types/src/execution.rs", location_test="tx_encoding_golden_vectors",
         severity="high",
         run_command=["cargo", "test", "-p", "cowboy-types", "tx_encoding_golden_vectors",
                      "--", "--exact"]),
     "contract.runner_types_serde": InvariantDef(
-        id="contract.runner_types_serde", domain="cross-repo", spec_ref="C-1",
+        id="contract.runner_types_serde", domain="cross-repo", spec_ref="CIP-2",
         executor_kind="conformance-vector", location_repo="node",
         location_path="runner/src/types.rs", location_test="runner_types_serde_compat",
         severity="high",
