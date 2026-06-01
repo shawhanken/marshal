@@ -45,6 +45,20 @@ def test_invariants_cross_repo_contract():
     assert "contract.tx_encoding_roundtrip" in [i["id"] for i in out]
 
 
+def test_spec_source_resolves_cip():
+    proc = _run(["spec-source", "--ref", "CIP-3"])
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    assert out["source"]["path_glob"] == "docs/cips/cip-3-*.md"
+    assert out["source"]["repo"] == "cowboy"
+
+
+def test_spec_source_unknown_ref_is_null():
+    proc = _run(["spec-source", "--ref", "C-1"])
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(proc.stdout)["source"] is None
+
+
 def test_ratchet_open_then_close(tmp_path):
     db = {"MARSHAL_DB": f"sqlite:///{tmp_path/'t.db'}"}
     op = _run(["ratchet-open", "--desc", "bare 2**10000 逃逸",

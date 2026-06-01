@@ -54,6 +54,11 @@ def cmd_classify(a) -> int:
     return _emit(_PACK.classify_detailed(scope))
 
 
+def cmd_spec_source(a) -> int:
+    # 把 spec_ref 标签 (如 CIP-3 / WP) 解析到正文源 (repo + path_glob),供 skill JIT 读取。
+    return _emit({"ref": a.ref, "source": _PACK.resolve_spec_ref(a.ref)})
+
+
 def cmd_invariants(a) -> int:
     scope = {"repo": a.repo, "diff_paths": a.paths}
     invs = _PACK.list_invariants(scope)
@@ -151,6 +156,10 @@ def build_parser() -> argparse.ArgumentParser:
     iv.add_argument("--repo", required=True)
     iv.add_argument("--paths", nargs="*", default=[])
     iv.set_defaults(func=cmd_invariants)
+
+    ss = sub.add_parser("spec-source")
+    ss.add_argument("--ref", required=True)
+    ss.set_defaults(func=cmd_spec_source)
 
     ro = sub.add_parser("ratchet-open")
     ro.add_argument("--escape-id", dest="escape_id", required=True)

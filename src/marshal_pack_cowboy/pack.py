@@ -1,4 +1,5 @@
 """Cowboy 领域包 (第一个领域包)。本切片只含经济守恒不变量 + 极简分级规则。"""
+import re
 from dataclasses import dataclass
 from marshal_core.domain_pack import InvariantDef
 
@@ -84,10 +85,48 @@ _CONTRACT_INVARIANTS = {
 }
 
 
+# 分层规格体系 (架构 §4.5): 白皮书=宪法, CIP=修正案. 源在 cowboy 仓库.
+# 权威源 (用户确认): https://github.com/cowboyinc/cowboy/tree/main/docs/{cips,whitepaper}
+SPEC_LAYERS = [
+    {"id": "whitepaper", "role": "constitution", "authority": "root",
+     "repo": "cowboy", "source": "docs/whitepaper",
+     "main": "cowboy-technical-whitepaper.md"},
+    {"id": "cip", "role": "amendment", "authority": "amends-constitution",
+     "repo": "cowboy", "source": "docs/cips"},
+]
+PRECEDENCE_NORMATIVE = ["whitepaper", "cip"]            # 应然: CIP 在触及处覆盖白皮书
+PRECEDENCE_DESCRIPTIVE = ["whitepaper", "cip", "code"]  # 实然: 代码为锚
+
+_CIP_RE = re.compile(r"^CIP-(\d+)$")
+
+
 class CowboyPack:
     @property
     def id(self) -> str:
         return "cowboy"
+
+    def spec_layers(self) -> list[dict]:
+        """分层规格体系声明 (供 ⑤/③ 解析规格层与定位源)。"""
+        return [dict(layer) for layer in SPEC_LAYERS]
+
+    def resolve_spec_ref(self, spec_ref: str) -> dict | None:
+        """把一个 spec_ref 标签解析到其正文源位置 (repo + path_glob)。
+
+        `CIP-<n>` → cowboy 仓库 docs/cips/cip-<n>-*.md;`WP`/`WHITEPAPER` →
+        技术白皮书主文件。非规格标签 (如 C-1 / M-B / CIP-?) 返回 None —— 它们
+        不是 CIP/白皮书条款,没有可读正文源。调用方据此 JIT 读取规格正文。
+        """
+        if not spec_ref:
+            return None
+        ref = spec_ref.strip()
+        m = _CIP_RE.match(ref)
+        if m:
+            return {"layer": "cip", "repo": "cowboy",
+                    "path_glob": f"docs/cips/cip-{int(m.group(1))}-*.md"}
+        if ref.upper() in ("WP", "WHITEPAPER"):
+            return {"layer": "whitepaper", "repo": "cowboy",
+                    "path_glob": "docs/whitepaper/cowboy-technical-whitepaper.md"}
+        return None
 
     def list_invariants(self, scope: dict) -> list[InvariantDef]:
         out = []
