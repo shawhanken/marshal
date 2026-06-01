@@ -32,6 +32,14 @@ async def webhook(request: Request):
     return {"job_id": job.job_id, "invariant_ids": job.params["invariant_ids"]}
 
 
+@app.post("/plan")
+async def plan(event: NormalizedEvent):
+    with _Session() as s:
+        resp = Orchestrator(_PACK, Store(s)).plan(event)
+    _EVENTS[event.change_ref] = event
+    return resp.model_dump()
+
+
 @app.post("/results")
 async def results(result: StructuredResult):
     change_ref = result.job_id.removeprefix("inv-")

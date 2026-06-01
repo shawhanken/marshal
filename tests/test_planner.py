@@ -21,3 +21,19 @@ def test_plan_empty_for_unknown_repo(db_session):
     orch = Orchestrator(pack=CowboyPack(), store=Store(db_session))
     ev = NormalizedEvent(kind="pr", repo="other", change_ref="z1")
     assert orch.plan(ev).invariants == []
+
+
+def test_plan_endpoint(tmp_path, monkeypatch):
+    import importlib
+    from fastapi.testclient import TestClient
+    monkeypatch.setenv("MARSHAL_DB", f"sqlite:///{tmp_path/'p.db'}")
+    import marshal_core.adapters.api as api
+    importlib.reload(api)
+    client = TestClient(api.app)
+    r = client.post("/plan", json={"kind": "pr", "repo": "node",
+                                   "change_ref": "abc123",
+                                   "diff_paths": ["execution/src/x.rs"]})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["job_id"] == "inv-abc123"
+    assert any(i["invariant_id"] == "econ.fee_conservation" for i in body["invariants"])
