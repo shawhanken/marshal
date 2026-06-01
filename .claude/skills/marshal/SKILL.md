@@ -1,0 +1,51 @@
+---
+name: marshal
+description: Use when reviewing a change before merge — runs the Marshal quality-gate cognitive loop (risk classification + invariant gate + adversarial review) on the current branch diff or a GitHub PR, and runs the escape→permanent-check ratchet. Triggers — "/marshal", "marshal gate", "跑一下 marshal", "marshal ratchet <bug>", "把这个漏过的 bug 上棘轮".
+---
+
+# Marshal Skill — 平台未建成前的本地质量大脑
+
+你是 Marshal 的"大脑/编排器"(领域无关)。确定性工作外包给 marshal CLI;你只做判断性工作并汇总 `GateDecision`。
+
+## 前置自检(每次先做)
+
+用绝对路径调 CLI(不依赖 cwd 的 Python):
+
+    MARSHAL_HOME=${MARSHAL_HOME:-/home/ubuntu/workspace/marshal}
+    PY="$MARSHAL_HOME/.venv/bin/python"
+
+跑一次 `"$PY" -m marshal_core.cli classify --repo node --paths README.md`。
+若失败(no module / venv 缺失)→ 提示用户先在 marshal 仓库跑 `"$PY" -m marshal_core.cli setup` 并 `pip install -e .`,然后停止。
+
+## 路由
+
+- `/marshal`            → 流 A,diff = 当前分支 vs base
+- `/marshal <PR#>`      → 流 A,diff = `gh pr diff <PR#>`,change_ref = PR head SHA
+- `/marshal ratchet "<bug>"` → 流 C
+
+## 流 A — 门禁评估
+
+详见 `references/gate-flow.md`。步骤摘要:
+1. 取 diff,用 `git rev-parse --show-toplevel` 判定所在 repo(可能多个)。
+2. 对每个 repo 调 `cli classify` → tier/reasons/contracts_hit/review_dimensions。
+3. 调 `cli invariants` → 在对应 repo 跑每条 `run_command`;契约不变量去其 `location_repo` 跑。
+4. 按 `review_dimensions` 调 `/code-review ultra`(高危全视角)做对抗式 review,默认怀疑。
+5. 汇总 `GateDecision`:任一不变量 fail→block;高危+确认高severity发现→needs_human;跑不起来/超预算→needs_human+degraded;否则 pass。
+6. `cli gate-record` 落库;有 PR# 且用户要 → 贴 PR 评论;终端打印摘要。
+7. 若在已合并代码上确认高severity发现 → 提议转流 C。
+
+## 流 C — 逃逸棘轮
+
+详见 `references/ratchet-flow.md`。步骤摘要:
+1. `cli ratchet-open --escape-id <新id> --desc "<bug>" --root-cause <你的分类> [--change-ref <sha>]`。
+2. 起草:根因分类 + 候选永久检查(指向某 repo 的 proptest 名 + 路径 + run_command)。
+3. 把草稿摆给用户,等其确认根因 + 选定检查。
+4. `cli ratchet-close --escape-id <id> --spawned-check <inv-id> --inv-json '<InvariantDef字段>'`。
+   (spawned_check 为空 CLI 会拒绝 — 这是棘轮纪律,不要绕过。)
+5. 提示去 `<repo>` 把这条 proptest 真正实现;可顺手起草测试骨架。
+
+## 铁律
+
+- **降级不谎报**:任何 CLI 错误(stdout 含 `"error"` 或非零退出)→ 对应门禁记 degraded,verdict 至少 needs_human,显式告诉用户哪步没跑成。绝不把"没审成"说成"审过了"。
+- **高危发现终审归人**:你只产出"发现+severity+confidence",高危一律 needs_human。
+- **不硬阻断**:你给 verdict 和评论,挡不住 merge — 如实说明这是建议态。

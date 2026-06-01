@@ -1,0 +1,25 @@
+# 流 A — 门禁评估细节
+
+## 取 diff
+- 无参:`base=$(git merge-base HEAD origin/main 2>/dev/null || git merge-base HEAD origin/devnet)`;`git diff --name-only $base...HEAD` 取改动路径;`git diff $base...HEAD` 取 diff_text。
+- `<PR#>`:`gh pr diff <PR#> --name-only` 取路径;`gh pr view <PR#> --json headRefOid -q .headRefOid` 取 change_ref。
+- 多 repo:diff 可能跨多个 git 顶层目录;按 repo 分组,各自走分级+不变量。
+
+## 调 CLI
+- `"$PY" -m marshal_core.cli classify --repo <r> --paths <p1> <p2> --diff-text "<截断的diff>" --labels <l1>`
+- `"$PY" -m marshal_core.cli invariants --repo <r> --paths <p1> <p2>`
+
+## 跑不变量
+对 `invariants` 返回的每条:`cd <workspace>/<inv.location_repo>` 然后跑 `inv.run_command`。
+- 测试不存在(契约不变量本体可能未实现)→ 该不变量记 degraded,提示"契约缺验证,建议用 /marshal ratchet 补",**不当作 pass**。
+- 跑失败 → 该门禁 outcome=fail。
+
+## 汇总 GateDecision(verdict 优先级 block > needs_human > pass)
+- 任一 active 不变量 fail → block
+- 高危 tier + 确认的高 severity review 发现 → needs_human
+- 任一步骤 degraded(CLI 错/测试缺/review 超预算)→ 至少 needs_human + 标 degraded
+- 否则 → pass
+
+## 落库与回写
+- `"$PY" -m marshal_core.cli gate-record --change-ref <ref> --verdict <v> --evidence-json '<gates JSON>'`
+- 有 PR# 且用户要:把发现贴成 PR 评论(可借 `/code-review ultra` 的 --comment)。
