@@ -49,7 +49,6 @@ class Store:
         return self.s.get(EscapeRegistry, escape_id)
 
     def list_open_escapes(self) -> list[EscapeRegistry]:
-        from sqlalchemy import select
         stmt = select(EscapeRegistry).where(EscapeRegistry.status == "open")
         return list(self.s.scalars(stmt))
 
