@@ -36,13 +36,14 @@ def test_resolve_whitepaper_ref():
     assert r["path_glob"] == "docs/whitepaper/cowboy-technical-whitepaper.md"
 
 
-def test_contract_invariant_spec_refs_resolve():
-    # Guard: no contract invariant may carry an unresolvable placeholder spec_ref
-    # (e.g. the old "CIP-?"); each must point at a readable spec source.
+def test_all_pack_invariant_spec_refs_resolve():
+    # Guard: every invariant the pack defines must carry a resolvable spec_ref
+    # (no unresolvable placeholders like the old "CIP-?"/"C-1").
     import marshal_pack_cowboy.pack as p
 
     pack = CowboyPack()
-    for inv in p._CONTRACT_INVARIANTS.values():
+    defs = list(p._ECON_INVARIANTS) + list(p._CONTRACT_INVARIANTS.values()) + list(p._STATE_INVARIANTS)
+    for inv in defs:
         assert pack.resolve_spec_ref(inv.spec_ref) is not None, (
             f"{inv.id} has unresolvable spec_ref {inv.spec_ref!r}"
         )

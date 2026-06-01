@@ -84,6 +84,29 @@ _CONTRACT_INVARIANTS = {
                      "--", "--exact"]),
 }
 
+# State/consensus invariant family — harvested from the knowledge core into the
+# version-controlled pack (架构 §4.6(4) DB⇄包晋升回路). Grown via the Marshal
+# ratchet (escape esc-20260601-01) while reviewing the CIP-4 state-sync PR.
+# Surfaced when a node change touches the state/consensus surface (_STATE_PREFIXES).
+# NOTE: these live in a module-nested test, so run_command uses a substring
+# filter (NOT `-- --exact`, which won't match `state_invariants::tests::…`).
+_STATE_PREFIXES = ("storage/", "chain/")
+
+_STATE_INVARIANTS = [
+    InvariantDef(id="state.root_consistent_propose_verify_report", domain="state-consensus",
+                 spec_ref="CIP-4", executor_kind="test", location_repo="node",
+                 location_path="storage/src/state_invariants.rs",
+                 location_test="prop_merkle_root_consistent_across_phases", severity="high",
+                 run_command=["cargo", "test", "-p", "cowboy-storage",
+                              "prop_merkle_root_consistent_across_phases"]),
+    InvariantDef(id="state.speculative_rollback_equivalent", domain="state-consensus",
+                 spec_ref="CIP-4", executor_kind="test", location_repo="node",
+                 location_path="storage/src/state_invariants.rs",
+                 location_test="prop_speculative_rollback_equivalent", severity="high",
+                 run_command=["cargo", "test", "-p", "cowboy-storage",
+                              "prop_speculative_rollback_equivalent"]),
+]
+
 
 # 分层规格体系 (架构 §4.5): 白皮书=宪法, CIP=修正案. 源在 cowboy 仓库.
 # 权威源 (用户确认): https://github.com/cowboyinc/cowboy/tree/main/docs/{cips,whitepaper}
@@ -132,6 +155,8 @@ class CowboyPack:
         out = []
         if scope.get("repo") == "node":
             out.extend(_ECON_INVARIANTS)
+            if any(p.startswith(_STATE_PREFIXES) for p in scope.get("diff_paths", [])):
+                out.extend(_STATE_INVARIANTS)
         seen = {i.id for i in out}
         for cid in self.contracts_hit(scope):
             for inv_id in _CONTRACT_BY_ID[cid].verify_invariants:

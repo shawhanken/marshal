@@ -45,3 +45,25 @@ def test_node_econ_change_still_lists_econ_invariants():
     invs = pack.list_invariants({"repo": "node",
                                  "diff_paths": ["execution/src/execution/transaction.rs"]})
     assert "econ.fee_conservation" in [i.id for i in invs]
+
+
+def test_node_storage_change_surfaces_state_invariants():
+    pack = CowboyPack()
+    invs = pack.list_invariants({"repo": "node",
+                                 "diff_paths": ["storage/src/blockchain_storage.rs"]})
+    ids = [i.id for i in invs]
+    assert "state.root_consistent_propose_verify_report" in ids
+    assert "state.speculative_rollback_equivalent" in ids
+
+
+def test_node_chain_change_surfaces_state_invariants():
+    pack = CowboyPack()
+    invs = pack.list_invariants({"repo": "node", "diff_paths": ["chain/src/fast_sync.rs"]})
+    assert "state.root_consistent_propose_verify_report" in [i.id for i in invs]
+
+
+def test_node_nonstate_change_omits_state_invariants():
+    pack = CowboyPack()
+    invs = pack.list_invariants({"repo": "node", "diff_paths": ["rpc/src/handlers/chain.rs"]})
+    ids = [i.id for i in invs]
+    assert "state.root_consistent_propose_verify_report" not in ids
