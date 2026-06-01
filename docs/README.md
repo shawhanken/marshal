@@ -16,7 +16,7 @@ Marshal —— 通用质量工程平台。核心**领域无关**,把任意项目
 
 1. 先读**方法论**(或看 HTML 宣讲页)建立心智模型——理解「为什么人工 review 必败、三支柱如何破局」。
 2. 再读**架构设计蓝图**——理解 Marshal 如何把方法论落成可建造的系统。
-3. 各子系统的可开工详细 spec(implementation plans)放 [`plans/`](plans/)。首个切入点见 [`plans/2026-06-01-walking-skeleton-econ-slice.md`](plans/2026-06-01-walking-skeleton-econ-slice.md) —— 平台 walking skeleton + 经济守恒不变量竖切(已实现,见分支 `feat/walking-skeleton-econ`)。
+3. 各子系统的可开工详细 spec(implementation plans)放 [`plans/`](plans/)。首个切入点见 [`plans/2026-06-01-walking-skeleton-econ-slice.md`](plans/2026-06-01-walking-skeleton-econ-slice.md) —— 平台 walking skeleton + 经济守恒不变量竖切(已实现,见分支 `feat/walking-skeleton-econ`)。后续 [`plans/2026-06-01-generic-reporter-action.md`](plans/2026-06-01-generic-reporter-action.md) —— 把 target-repo 侧 reporter 通用化(拉模型 + composite action),使被纳管 repo 的耦合收缩到「一行 action 引用 + 它自己的测试」(已实现)。
 
 ## 文档约定
 
