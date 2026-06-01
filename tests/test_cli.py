@@ -80,3 +80,15 @@ def test_gate_record_persists_run(tmp_path):
                  "--evidence-json", ev], env=db)
     assert proc.returncode == 0, proc.stderr
     assert isinstance(json.loads(proc.stdout)["run_id"], int)
+
+
+def test_setup_creates_symlink(tmp_path):
+    home = tmp_path / "fakehome"
+    home.mkdir()
+    proc = _run(["setup"], env={"HOME": str(home)})
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    link = home / ".claude" / "skills" / "marshal"
+    assert link.is_symlink()
+    assert out["ok"] is True
+    assert out["import_ok"] is True

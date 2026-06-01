@@ -106,6 +106,30 @@ def cmd_gate_record(a) -> int:
         s.close()
 
 
+def cmd_setup(a) -> int:
+    home = _marshal_home()
+    skill_src = home / ".claude" / "skills" / "marshal"
+    link_dir = Path(os.path.expanduser("~")) / ".claude" / "skills"
+    link_dir.mkdir(parents=True, exist_ok=True)
+    link = link_dir / "marshal"
+    if link.is_symlink() or link.exists():
+        if link.is_symlink():
+            link.unlink()
+        else:
+            return _fail(f"{link} exists and is not a symlink; remove it manually")
+    link.symlink_to(skill_src, target_is_directory=True)
+
+    try:
+        import marshal_pack_cowboy.pack  # noqa: F401
+        import_ok = True
+    except Exception:
+        import_ok = False
+
+    return _emit({"ok": True, "symlink": str(link), "target": str(skill_src),
+                  "import_ok": import_ok,
+                  "hint": None if import_ok else "run: pip install -e . in marshal venv"})
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="marshal")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -141,6 +165,9 @@ def build_parser() -> argparse.ArgumentParser:
                     choices=["pass", "block", "needs_human"])
     gr.add_argument("--evidence-json", dest="evidence_json", default="[]")
     gr.set_defaults(func=cmd_gate_record)
+
+    st = sub.add_parser("setup")
+    st.set_defaults(func=cmd_setup)
 
     return p
 
