@@ -46,3 +46,17 @@ class AuditLog(Base):
     actor: Mapped[str] = mapped_column(String, default="system")
     decision: Mapped[str] = mapped_column(String, default="")
     refs: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class EscapeRegistry(Base):
+    __tablename__ = "escape_registry"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    domain_pack: Mapped[str] = mapped_column(String, index=True, default="cowboy")
+    discovered_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    introduced_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    root_cause_class: Mapped[str] = mapped_column(String, default="")
+    change_ref: Mapped[str | None] = mapped_column(String, nullable=True)
+    description: Mapped[str] = mapped_column(String, default="")
+    postmortem_ref: Mapped[str | None] = mapped_column(String, nullable=True)
+    spawned_check: Mapped[str | None] = mapped_column(String, nullable=True)
+    status: Mapped[str] = mapped_column(String, default="open")
