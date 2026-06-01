@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 高速研发下的质量工程方法论 · Cowboy</title>
+<style>
+  :root{
+    --bg:#0d1117; --bg2:#161b22; --bg3:#1c2128; --border:#30363d; --border2:#21262d;
+    --text:#e6edf3; --dim:#8b949e; --dim2:#6e7681;
+    --teal:#2dd4bf; --amber:#fbbf24; --red:#f87171; --green:#4ade80; --blue:#60a5fa; --purple:#a78bfa;
+    --mono:'SF Mono',ui-monospace,'JetBrains Mono','Cascadia Code',Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei','Noto Sans SC',sans-serif;
+    --sidebar:288px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.7;
+    -webkit-font-smoothing:antialiased;font-feature-settings:"tnum";overflow-x:hidden}
+  ::selection{background:rgba(45,212,191,.3)}
+  /* scrollbar */
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-track{background:var(--bg)}
+  ::-webkit-scrollbar-thumb{background:#30363d;border-radius:5px}
+  ::-webkit-scrollbar-thumb:hover{background:#3f4651}
+
+  /* top scroll progress */
+  #progress{position:fixed;top:0;left:0;height:3px;width:0;z-index:1000;
+    background:linear-gradient(90deg,var(--teal),var(--amber));transition:width .1s linear;box-shadow:0 0 10px rgba(45,212,191,.5)}
+
+  /* ============ SIDEBAR ============ */
+  #sidebar{position:fixed;top:0;left:0;width:var(--sidebar);height:100vh;background:var(--bg2);
+    border-right:1px solid var(--border);overflow-y:auto;padding:28px 0 40px;z-index:100}
+  #sidebar .brand{padding:0 24px 20px;border-bottom:1px solid var(--border2);margin-bottom:16px}
+  #sidebar .brand .kicker{font-family:var(--mono);font-size:11px;letter-spacing:2px;color:var(--teal);text-transform:uppercase}
+  #sidebar .brand h1{font-size:17px;font-weight:700;margin-top:8px;line-height:1.35}
+  #sidebar .brand .meta{font-family:var(--mono);font-size:11px;color:var(--dim2);margin-top:10px}
+  .nav-group{padding:0 12px;margin-bottom:8px}
+  .nav-group > .gl{font-family:var(--mono);font-size:10px;letter-spacing:1.5px;color:var(--dim2);
+    text-transform:uppercase;padding:14px 12px 6px}
+  .nav-link{display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:7px;color:var(--dim);
+    text-decoration:none;font-size:13.5px;transition:all .15s;cursor:pointer;border-left:2px solid transparent}
+  .nav-link .num{font-family:var(--mono);font-size:10px;color:var(--dim2);min-width:24px}
+  .nav-link:hover{background:var(--bg3);color:var(--text)}
+  .nav-link.active{background:rgba(45,212,191,.08);color:var(--teal);border-left-color:var(--teal)}
+  .nav-link.active .num{color:var(--teal)}
+
+  /* ============ MAIN ============ */
+  main{margin-left:var(--sidebar);padding:0}
+  .wrap{max-width:920px;margin:0 auto;padding:0 56px}
+  section{padding:84px 0;border-bottom:1px solid var(--border2);scroll-margin-top:20px}
+  section:last-child{border-bottom:none}
+
+  .sec-tag{display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;
+    letter-spacing:1px;color:var(--teal);margin-bottom:18px;text-transform:uppercase}
+  .sec-tag .dot{width:6px;height:6px;border-radius:50%;background:var(--teal);box-shadow:0 0 8px var(--teal)}
+  h2{font-size:33px;font-weight:800;line-height:1.2;letter-spacing:-.5px;margin-bottom:14px}
+  h2 .accent{color:var(--teal)}
+  .lead{font-size:17px;color:var(--dim);max-width:760px;margin-bottom:32px}
+  h3{font-size:20px;font-weight:700;margin:36px 0 14px;display:flex;align-items:center;gap:10px}
+  h3 .chip{font-family:var(--mono);font-size:11px;font-weight:600;padding:3px 9px;border-radius:6px;
+    background:var(--bg3);color:var(--teal);border:1px solid var(--border)}
+  p{margin-bottom:14px;color:#c9d1d9}
+  strong{color:var(--text);font-weight:700}
+  code{font-family:var(--mono);font-size:.88em;background:var(--bg3);padding:2px 6px;border-radius:5px;
+    color:var(--amber);border:1px solid var(--border2)}
+  a{color:var(--teal)}
+
+  /* HERO */
+  #hero{min-height:100vh;display:flex;flex-direction:column;justify-content:center;
+    border-bottom:1px solid var(--border2);position:relative;overflow:hidden}
+  #hero::before{content:"";position:absolute;top:-30%;right:-10%;width:600px;height:600px;
+    background:radial-gradient(circle,rgba(45,212,191,.12),transparent 70%);pointer-events:none}
+  #hero::after{content:"";position:absolute;bottom:-20%;left:-5%;width:500px;height:500px;
+    background:radial-gradient(circle,rgba(251,191,36,.08),transparent 70%);pointer-events:none}
+  #hero .wrap{position:relative;z-index:1}
+  .hero-kicker{font-family:var(--mono);font-size:13px;letter-spacing:3px;color:var(--teal);text-transform:uppercase;margin-bottom:24px}
+  #hero h1{font-size:clamp(38px,6vw,68px);font-weight:900;line-height:1.05;letter-spacing:-2px;margin-bottom:28px}
+  #hero h1 .g{background:linear-gradient(120deg,var(--teal),var(--amber));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+  #hero .sub{font-size:20px;color:var(--dim);max-width:680px;margin-bottom:40px;line-height:1.6}
+  .hero-stats{display:flex;gap:48px;flex-wrap:wrap;margin-top:8px}
+  .hero-stat .v{font-family:var(--mono);font-size:34px;font-weight:800;color:var(--teal)}
+  .hero-stat .l{font-size:13px;color:var(--dim);margin-top:2px}
+  .scroll-hint{position:absolute;bottom:34px;left:50%;transform:translateX(-50%);color:var(--dim2);
+    font-size:12px;font-family:var(--mono);letter-spacing:1px;animation:bob 2s ease-in-out infinite}
+  @keyframes bob{0%,100%{transform:translate(-50%,0)}50%{transform:translate(-50%,8px)}}
+
+  /* cards / grids */
+  .grid{display:grid;gap:18px;margin:24px 0}
+  .g2{grid-template-columns:1fr 1fr}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  .g4{grid-template-columns:repeat(4,1fr)}
+  .card{background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:24px;transition:all .25s}
+  .card:hover{border-color:#3f4651;transform:translateY(-3px);box-shadow:0 12px 30px rgba(0,0,0,.35)}
+  .card .ic{font-size:22px;margin-bottom:12px;display:block}
+  .card h4{font-size:16px;font-weight:700;margin-bottom:8px}
+  .card p{font-size:14px;color:var(--dim);margin:0}
+  .card .badge{font-family:var(--mono);font-size:10px;padding:3px 8px;border-radius:20px;
+    display:inline-block;margin-top:12px;font-weight:600}
+
+  /* callout */
+  .callout{border-radius:12px;padding:20px 24px;margin:24px 0;border-left:4px solid;position:relative}
+  .callout .ct{font-weight:700;font-size:14px;margin-bottom:6px;display:flex;align-items:center;gap:8px}
+  .callout p{margin:0;font-size:14.5px}
+  .co-key{background:rgba(45,212,191,.07);border-color:var(--teal)}
+  .co-key .ct{color:var(--teal)}
+  .co-warn{background:rgba(248,113,113,.07);border-color:var(--red)}
+  .co-warn .ct{color:var(--red)}
+  .co-info{background:rgba(96,165,250,.07);border-color:var(--blue)}
+  .co-info .ct{color:var(--blue)}
+
+  /* tables */
+  table{width:100%;border-collapse:collapse;margin:22px 0;font-size:14px}
+  th,td{text-align:left;padding:12px 14px;border-bottom:1px solid var(--border2)}
+  th{font-family:var(--mono);font-size:11px;letter-spacing:.5px;color:var(--dim);text-transform:uppercase;
+    background:var(--bg2);border-bottom:1px solid var(--border)}
+  tr:hover td{background:rgba(255,255,255,.015)}
+  td code{font-size:12px}
+
+  /* ===== asymmetry dual-bar viz ===== */
+  .asym{margin:18px 0;padding:22px;background:var(--bg2);border:1px solid var(--border);border-radius:14px}
+  .asym .at{font-size:15px;font-weight:700;margin-bottom:4px}
+  .asym .ad{font-size:13px;color:var(--dim);margin-bottom:18px}
+  .barrow{display:flex;align-items:center;gap:14px;margin-bottom:12px}
+  .barrow .bl{width:130px;font-size:13px;color:var(--dim);text-align:right;flex-shrink:0}
+  .bartrack{flex:1;height:30px;background:var(--bg3);border-radius:8px;overflow:hidden;position:relative}
+  .barfill{height:100%;width:0;border-radius:8px;transition:width 1.1s cubic-bezier(.16,1,.3,1);
+    display:flex;align-items:center;justify-content:flex-end;padding-right:12px;font-family:var(--mono);
+    font-size:12px;font-weight:700;color:#0d1117}
+  .bf-red{background:linear-gradient(90deg,#dc2626,#f87171)}
+  .bf-teal{background:linear-gradient(90deg,#0d9488,#2dd4bf)}
+
+  /* ===== pillar leverage bars ===== */
+  .lever{display:flex;align-items:center;gap:16px;margin:10px 0}
+  .lever .ll{width:170px;font-size:13.5px;flex-shrink:0}
+  .lever .lt{flex:1;height:14px;background:var(--bg3);border-radius:7px;overflow:hidden}
+  .lever .lf{height:100%;width:0;border-radius:7px;transition:width 1.2s cubic-bezier(.16,1,.3,1)}
+  .lever .lv{font-family:var(--mono);font-size:12px;color:var(--dim);width:74px;flex-shrink:0}
+
+  /* ===== risk tiers ===== */
+  .tiers{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:24px 0}
+  .tier{border-radius:14px;padding:22px;border:1px solid;position:relative;overflow:hidden}
+  .tier .th{display:flex;align-items:center;gap:10px;font-weight:800;font-size:18px;margin-bottom:14px}
+  .tier .tlight{width:13px;height:13px;border-radius:50%}
+  .tier ul{list-style:none;font-size:13px}
+  .tier li{padding:5px 0;color:var(--dim);padding-left:18px;position:relative}
+  .tier li::before{content:"›";position:absolute;left:2px;color:currentColor;font-weight:700}
+  .t-high{background:rgba(248,113,113,.06);border-color:rgba(248,113,113,.4)}
+  .t-high .th,.t-high li::before{color:var(--red)} .t-high .tlight{background:var(--red);box-shadow:0 0 10px var(--red)}
+  .t-mid{background:rgba(251,191,36,.06);border-color:rgba(251,191,36,.4)}
+  .t-mid .th,.t-mid li::before{color:var(--amber)} .t-mid .tlight{background:var(--amber);box-shadow:0 0 10px var(--amber)}
+  .t-low{background:rgba(74,222,128,.06);border-color:rgba(74,222,128,.4)}
+  .t-low .th,.t-low li::before{color:var(--green)} .t-low .tlight{background:var(--green);box-shadow:0 0 10px var(--green)}
+  .tier .gate{margin-top:14px;font-size:12px;font-family:var(--mono);color:var(--text);
+    background:rgba(0,0,0,.25);padding:10px;border-radius:8px;line-height:1.6}
+
+  /* ===== metric trend (svg) ===== */
+  .metric-viz{background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:24px;margin:24px 0}
+  .metric-viz h4{font-size:15px;margin-bottom:6px}
+  .metric-viz .cap{font-size:13px;color:var(--dim);margin-bottom:16px}
+  .trendline{stroke:var(--teal);stroke-width:2.5;fill:none;stroke-dasharray:600;stroke-dashoffset:600;
+    transition:stroke-dashoffset 2s ease}
+  .trendarea{fill:url(#grad);opacity:0;transition:opacity 1.2s ease .4s}
+
+  /* roadmap */
+  .road{position:relative;margin:24px 0 0;padding-left:34px}
+  .road::before{content:"";position:absolute;left:11px;top:6px;bottom:30px;width:2px;background:var(--border)}
+  .step{position:relative;margin-bottom:24px}
+  .step .sn{position:absolute;left:-34px;top:0;width:24px;height:24px;border-radius:50%;background:var(--bg);
+    border:2px solid var(--teal);color:var(--teal);font-family:var(--mono);font-size:12px;font-weight:700;
+    display:flex;align-items:center;justify-content:center;z-index:1}
+  .step h4{font-size:16px;margin-bottom:4px}
+  .step p{font-size:14px;color:var(--dim);margin:0}
+
+  /* philosophy principles */
+  .principle{display:flex;gap:18px;padding:18px 0;border-bottom:1px solid var(--border2);align-items:flex-start}
+  .principle:last-child{border-bottom:none}
+  .principle .pn{font-family:var(--mono);font-size:26px;font-weight:800;color:var(--bg3);
+    -webkit-text-stroke:1px var(--teal);min-width:46px}
+  .principle h4{font-size:16px;margin-bottom:4px}
+  .principle p{font-size:14px;color:var(--dim);margin:0}
+
+  /* anti-patterns flip cards */
+  .ap{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:18px;
+    cursor:default;transition:all .2s}
+  .ap:hover{border-color:rgba(248,113,113,.5);background:rgba(248,113,113,.04)}
+  .ap .bad{font-weight:700;font-size:14.5px;color:var(--red);margin-bottom:8px;display:flex;gap:8px;align-items:flex-start}
+  .ap .why{font-size:13px;color:var(--dim);padding-top:8px;border-top:1px dashed var(--border)}
+
+  /* expandable (appendix / details) */
+  .exp{background:var(--bg2);border:1px solid var(--border);border-radius:12px;margin:14px 0;overflow:hidden}
+  .exp summary{padding:18px 22px;cursor:pointer;font-weight:700;font-size:15px;display:flex;
+    align-items:center;gap:12px;list-style:none;transition:background .15s}
+  .exp summary::-webkit-details-marker{display:none}
+  .exp summary:hover{background:var(--bg3)}
+  .exp summary .tw{font-family:var(--mono);color:var(--teal);transition:transform .2s}
+  .exp[open] summary .tw{transform:rotate(90deg)}
+  .exp summary .ct{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--dim2)}
+  .exp .body{padding:4px 22px 22px}
+  .exp .body ul{margin-left:18px;font-size:14px}
+  .exp .body li{margin:6px 0;color:#c9d1d9}
+  .exp .body h5{font-family:var(--mono);font-size:12px;color:var(--teal);text-transform:uppercase;
+    letter-spacing:1px;margin:18px 0 6px}
+
+  /* asset distinction tags */
+  .tag-repo{color:var(--green);font-family:var(--mono);font-size:11px;font-weight:600}
+  .tag-plat{color:var(--purple);font-family:var(--mono);font-size:11px;font-weight:600}
+
+  /* reveal animation */
+  .reveal{opacity:0;transform:translateY(24px);transition:opacity .7s cubic-bezier(.16,1,.3,1),transform .7s cubic-bezier(.16,1,.3,1)}
+  .reveal.in{opacity:1;transform:none}
+
+  /* footer */
+  footer{margin-left:var(--sidebar);padding:40px 56px;text-align:center;color:var(--dim2);
+    font-size:12px;font-family:var(--mono);border-top:1px solid var(--border2)}
+
+  /* mobile */
+  #menubtn{display:none}
+  @media(max-width:1080px){
+    :root{--sidebar:0px}
+    #sidebar{transform:translateX(-100%);transition:transform .3s;width:288px}
+    #sidebar.open{transform:none}
+    main,footer{margin-left:0}
+    .wrap{padding:0 22px}
+    #menubtn{display:flex;position:fixed;top:14px;right:14px;z-index:200;background:var(--bg2);
+      border:1px solid var(--border);color:var(--teal);width:44px;height:44px;border-radius:10px;
+      align-items:center;justify-content:center;font-size:20px;cursor:pointer}
+    .g2,.g3,.g4,.tiers{grid-template-columns:1fr}
+    .hero-stats{gap:28px}
+  }
+</style>
+</head>
+<body>
+<div id="progress"></div>
+<button id="menubtn" aria-label="menu">☰</button>
+
+<!-- ============ SIDEBAR ============ -->
+<aside id="sidebar">
+  <div class="brand">
+    <div class="kicker">Cowboy · 方法论</div>
+    <h1>AI 高速研发下的<br>质量工程方法论</h1>
+    <div class="meta">v1 · 2026-05-29</div>
+  </div>
+  <nav>
+    <div class="nav-group">
+      <div class="gl">概览</div>
+      <a class="nav-link" data-t="tldr"><span class="num">00</span>一页纸结论</a>
+      <a class="nav-link" data-t="problem"><span class="num">01</span>三个结构性不对称</a>
+      <a class="nav-link" data-t="philosophy"><span class="num">02</span>设计哲学</a>
+    </div>
+    <div class="nav-group">
+      <div class="gl">三支柱</div>
+      <a class="nav-link" data-t="pillar1"><span class="num">P1</span>可执行不变量门禁</a>
+      <a class="nav-link" data-t="pillar2"><span class="num">P2</span>风险分级注意力</a>
+      <a class="nav-link" data-t="pillar3"><span class="num">P3</span>逃逸即学习棘轮</a>
+    </div>
+    <div class="nav-group">
+      <div class="gl">配套层</div>
+      <a class="nav-link" data-t="ai-review"><span class="num">A</span>AI 对抗式 review</a>
+      <a class="nav-link" data-t="cip"><span class="num">05</span>CIP 规格层治理</a>
+      <a class="nav-link" data-t="defense"><span class="num">B</span>运行时纵深防御</a>
+    </div>
+    <div class="nav-group">
+      <div class="gl">落地</div>
+      <a class="nav-link" data-t="metrics"><span class="num">07</span>度量体系</a>
+      <a class="nav-link" data-t="roadmap"><span class="num">08</span>落地路线图</a>
+      <a class="nav-link" data-t="antipatterns"><span class="num">09</span>反模式清单</a>
+      <a class="nav-link" data-t="assets"><span class="num">10</span>现有资产映射</a>
+      <a class="nav-link" data-t="appendix"><span class="num">A/B</span>附录:不变量 / 分级</a>
+    </div>
+  </nav>
+</aside>
+
+<main>
+  <!-- HERO -->
+  <section id="hero">
+    <div class="wrap">
+      <div class="hero-kicker">Systems-Engineering Methodology</div>
+      <h1>当 AI 产能<span class="g">指数级</span>增长<br>质量保障必须<span class="g">结构性</span>重构</h1>
+      <p class="sub">多 repo、海量 AI 产出之下,靠扩充人力去逐行 review 是和指数曲线赛跑——数学上注定输。本方法论用三根支柱替代「人审一切」。</p>
+      <div class="hero-stats">
+        <div class="hero-stat"><div class="v">3</div><div class="l">核心支柱</div></div>
+        <div class="hero-stat"><div class="v">2</div><div class="l">包裹层</div></div>
+        <div class="hero-stat"><div class="v">∞</div><div class="l">不变量门禁复利</div></div>
+      </div>
+    </div>
+    <div class="scroll-hint">↓ 向下滚动 / 或用侧栏跳转</div>
+  </section>
+
+  <!-- TLDR -->
+  <section id="tldr">
+    <div class="wrap">
+      <div class="sec-tag reveal"><span class="dot"></span>§0 · TL;DR</div>
+      <h2 class="reveal">一页纸<span class="accent">结论</span></h2>
+      <p class="lead reveal">问题不是「review 跟不上」,而是用<strong>线性人工流程</strong>去对抗<strong>指数级生成产能</strong>,且人工 review 恰好抓不住 AI 代码的典型缺陷。任何「审得更快/更多/招更多人」都是在错误维度上加码。</p>
+
+      <div class="grid g3 reveal">
+        <div class="card">
+          <span class="ic">🔒</span><h4>支柱 1 · 可执行不变量门禁</h4>
+          <p>把「深而本质」的正确性写成机器每次都跑的检查。</p>
+          <span class="badge" style="background:rgba(45,212,191,.15);color:var(--teal)">杠杆最高 · 永久复利</span>
+        </div>
+        <div class="card">
+          <span class="ic">🎯</span><h4>支柱 2 · 风险分级注意力</h4>
+          <p>人只审机器无法替代的判断,按爆炸半径路由。</p>
+          <span class="badge" style="background:rgba(251,191,36,.15);color:var(--amber)">高 · 立即见效</span>
+        </div>
+        <div class="card">
+          <span class="ic">⚙️</span><h4>支柱 3 · 逃逸即学习棘轮</h4>
+          <p>每个漏过的深层 bug → 一条永久检查。</p>
+          <span class="badge" style="background:rgba(167,139,250,.15);color:var(--purple)">复利来源</span>
+        </div>
+      </div>
+
+      <div class="callout co-key reveal">
+        <div class="ct">⭐ 最关键的判断</div>
+        <p>成败取决于<strong>支柱 1 与支柱 3 形成的棘轮</strong>。工具(<code>audit-bot</code> / <code>/code-review ultra</code>)只是载体;只上工具不建棘轮,半年后 AI reviewer 会给一切打绿灯,而深层 bug 照漏不误。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- PROBLEM -->
+  <section id="problem">
+    <div class="wrap">
+      <div class="sec-tag reveal"><span class="dot"></span>§1 · 问题定义</div>
+      <h2 class="reveal">三个<span class="accent">结构性不对称</span></h2>
+      <p class="lead reveal">现象是「review 来不及 / 草率 merge → 深层问题潜伏渗透」。但现象不是根因。根因是三个不对称,它们决定了为什么传统手段必然失败。</p>
+
+      <div class="asym reveal" data-viz="asym">
+        <div class="at">1.1 产能不对称 · 生成 O(海量) vs 人工验证 O(线性)</div>
+        <div class="ad">试图用扩充人力追平指数曲线——数学上注定输。这条不对称证伪了一切「在 review 吞吐维度上加码」的方案。</div>
+        <div class="barrow"><div class="bl">AI 生成产能</div><div class="bartrack"><div class="barfill bf-red" data-w="100">指数级</div></div></div>
+        <div class="barrow"><div class="bl">人工验证产能</div><div class="bartrack"><div class="barfill bf-teal" data-w="18">线性 · 昂贵 · 会疲劳</div></div></div>
+      </div>
+
+      <div class="asym reveal" data-viz="asym">
+        <div class="at">1.2 缺陷类型不对称 · AI 缺陷骗过人类依赖的信号</div>
+        <div class="ad">人工 review 依赖表层信号(能编译、读着顺、过测试、风格像)。AI 产出恰好在这些信号上优异,却可能违反不变量 / 跨 repo 契约 / 规格语义——人眼逐行本就抓不住。</div>
+        <div class="barrow"><div class="bl">表层信号(人眼擅长)</div><div class="bartrack"><div class="barfill bf-teal" data-w="92">AI 几乎全过</div></div></div>
+        <div class="barrow"><div class="bl">深层不变量(致命)</div><div class="bartrack"><div class="barfill bf-red" data-w="34">人眼盲区</div></div></div>
+      </div>
+
+      <div class="asym reveal" data-viz="asym">
+        <div class="at">1.3 边界不对称 · 多 repo 放大盲区</div>
+        <div class="ad"><code>wallet</code> tx 编码须与 <code>node</code> 字节级一致;CIP 接口横跨 node+runner+cbfs。最致命的破坏发生在<strong>跨边界</strong>——任何单 repo 的 CI、单个 reviewer 在设计上就看不到。</div>
+        <div class="barrow"><div class="bl">单 repo 内可见</div><div class="bartrack"><div class="barfill bf-teal" data-w="80"></div></div></div>
+        <div class="barrow"><div class="bl">跨边界破坏可见</div><div class="bartrack"><div class="barfill bf-red" data-w="12">结构性盲区</div></div></div>
+      </div>
+
+      <div class="callout co-info reveal">
+        <div class="ct">→ 推论</div>
+        <p>根因是结构性的,解法也必须结构性:改变<strong>验证的执行主体</strong>(人→机器)、改变<strong>注意力分配</strong>(全部→分级)、改变<strong>系统的学习方式</strong>(一次性→棘轮)。下文三支柱逐一对应。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- PHILOSOPHY -->
+  <section id="philosophy">
+    <div class="wrap">
+      <div class="sec-tag reveal"><span class="dot"></span>§2 · 第一性原理</div>
+      <h2 class="reveal">设计<span class="accent">哲学</span></h2>
+      <p class="lead reveal">后续每个机制都是这四条原则的推论。</p>
+      <div class="card reveal" style="padding:8px 28px">
+        <div class="principle"><div class="pn">01</div><div><h4>能写成断言的,就不该靠人 review</h4><p>机器检查不睡觉、不疲劳、不被漂亮 diff 蒙骗,且对未来所有 PR 永久生效。把一次性 review 成本转化为永久复利的资产。</p></div></div>
+        <div class="principle"><div class="pn">02</div><div><h4>人类注意力是最稀缺资源,只投在不可替代的判断上</h4><p>架构取舍、CIP 意图、新不变量的发现——AI 暂时替代不了。逐行看 AI 写的样板代码不是。</p></div></div>
+        <div class="principle"><div class="pn">03</div><div><h4>承认 pre-merge 永不完美,所以纵深防御</h4><p>不追求一道门挡住一切,而是多层网,让逃逸在 devnet(而非主网/用户)被抓住。</p></div></div>
+        <div class="principle"><div class="pn">04</div><div><h4>系统必须从每次失败中变得更聪明</h4><p>没有棘轮的质量体系会随时间退化;有棘轮的会随时间收紧。这是唯一能跟上指数产能的机制——因为它也是复利的。</p></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PILLAR 1 -->
+  <section id="pillar1">
+    <div class="wrap">
+      <div class="sec-tag reveal"><span class="dot"></span>支柱 1 · 最高杠杆</div>
+      <h2 class="reveal">可执行的<span class="accent">不变量门禁</span></h2>
+      <p class="lead reveal">那些「潜伏极深、本质性」的 bug,绝大多数是<strong>某条没被任何地方编码、因此无法被检查的不变量被违反了</strong>。把它写成机器每次都跑的检查,就一次性把 review 负担转成 CI 门禁。</p>
+
+      <h3 class="reveal">三支柱杠杆对比 <span class="chip">leverage</span></h3>
+      <div class="card reveal" data-viz="lever">
+        <div class="lever"><div class="ll">支柱 1 不变量门禁</div><div class="lt"><div class="lf" data-w="100" style="background:linear-gradient(90deg,#0d9488,var(--teal))"></div></div><div class="lv">最高·永久</div></div>
+        <div class="lever"><div class="ll">支柱 2 风险分级</div><div class="lt"><div class="lf" data-w="72" style="background:linear-gradient(90deg,#b45309,var(--amber))"></div></div><div class="lv">高·即时</div></div>
+        <div class="lever"><div class="ll">支柱 3 逃逸棘轮</div><div class="lt"><div class="lf" data-w="88" style="background:linear-gradient(90deg,#7c3aed,var(--purple))"></div></div><div class="lv">复利累积</div></div>
+        <div class="lever"><div class="ll">包裹 A AI review</div><div class="lt"><div class="lf" data-w="50" style="background:linear-gradient(90deg,#1d4ed8,var(--blue))"></div></div><div class="lv">中·辅助</div></div>
+      </div>
+
+      <h3 class="reveal">Cowboy 不变量族(落地种子)</h3>
+      <div class="grid g2 reveal">
+        <div class="card"><span class="ic">💰</span><h4>经济 / Gas 守恒</h4><p><code>burn+tip==fee_total</code>;escrow 永不为负;dual-meter 计量与实际操作一致;settlement 三方比例之和恒为 100%。→ 用 proptest,而非逐行审 <code>verifier.rs</code>。</p></div>
+        <div class="card"><span class="ic">🔗</span><h4>跨 repo 契约(打击 §1.3 盲区)</h4><p><code>wallet</code> 编码 → <code>node</code> 解出<strong>完全相同字节</strong>。维护 golden vectors 放进双方 CI;任一侧破坏立即红灯。</p></div>
+        <div class="card"><span class="ic">🐍</span><h4>PVM 确定性</h4><p><code>validate_actor_code()</code> + determinism harness 持续加厚。已知逃逸:bare literal <code>2**10000</code> 绕过 <code>INT_GUARD_PREAMBLE</code> → 棘轮盯死项。</p></div>
+        <div class="card"><span class="ic">⛓️</span><h4>状态 / 共识</h4><p>nonce 单调;Merkle root 三阶段一致;speculative rollback 后状态等价。</p></div>
+      </div>
+
+      <div class="callout co-key reveal">
+        <div class="ct">⭐ 判定标准</div>
+        <p>凡是一个缺陷「<strong>本可被一条断言抓住</strong>」,它就不该进入人工 review 的职责范围。单测验证「具体输入→具体输出」;不变量验证「<strong>对所有输入</strong>某性质恒成立」——AI 最易写出过单测却违反全局性质的代码,这正是要补的层。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- PILLAR 2 -->
+  <section id="pillar2">
+    <div class="wrap">
+      <div class="sec-tag reveal"><span class="dot"></span>支柱 2 · 注意力分配</div>
+      <h2 class="reveal">风险<span class="accent">分级</span>的注意力分配</h2>
+      <p class="lead reveal">不是所有 PR 值得同等审查。用 AI 自动给每个 PR 打<strong>爆炸半径</strong>标签并路由,把稀缺的人类注意力集中到高危处。</p>
+
+      <div class="tiers reveal">
+        <div class="tier t-high">
+          <div class="th"><span class="tlight"></span>高危</div>
+          <ul><li>共识 / execution / gas</li><li>crypto / state-root</li><li>跨 repo 契约</li><li>CIP 定义接口</li></ul>
+          <div class="gate">深审 + <code>/code-review ultra</code> 多 agent + ≥1 领域 owner 签字 + merge queue</div>
+        </div>
+        <div class="tier t-mid">
+          <div class="th"><span class="tlight"></span>中危</div>
+          <ul><li>普通 actor 逻辑</li><li>RPC handler</li><li>非契约型 runner 代码</li></ul>
+          <div class="gate">AI 对抗式 review + 1 名人工 review</div>
+        </div>
+        <div class="tier t-low">
+          <div class="th"><span class="tlight"></span>低危</div>
+          <ul><li>文档</li><li>测试</li><li>工具脚本 / 注释</li></ul>
+          <div class="gate">AI review 通过即可,人工抽查</div>
+        </div>
+      </div>
+
+      <h3 class="reveal">两条配套硬约束 <span class="chip">从源头降成本</span></h3>
+      <div class="grid g2 reveal">
+        <div class="card"><span class="ic">📏</span><h4>小 PR 强制</h4><p>AI 倾向产出庞大 diff,而庞大 diff 不可审。拒绝 mega-PR,一个 PR 一个关注点——降低单次 review 成本最有效的手段。</p></div>
+        <div class="card"><span class="ic">🧭</span><h4>高危先设计后写码</h4><p>架构 / CIP 级改动先走 brainstorming / 设计评审再写代码。否则你在审一个建立在错误前提上的 2000 行实现——把判断点前移,成本低一个数量级。</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PILLAR 3 -->
+  <section id="pillar3">
+    <div class="wrap">
+      <div class="sec-tag reveal"><span class="dot"></span>支柱 3 · 复利来源</div>
+      <h2 class="reveal">逃逸即<span class="accent">学习</span>的棘轮</h2>
+      <p class="lead reveal">每发现一个「潜伏很深」的 bug,<strong>强制做轻量 post-mortem,产出至少一条永久检查</strong>:回归测试、新不变量(回流支柱 1)、lint、或 review agent prompt 规则。</p>
+
+      <div class="callout co-key reveal">
+        <div class="ct">⚙️ 为什么是复利来源</div>
+        <p>你被咬过的地方,网就在那里织得更密,同类问题再不可能静默通过。这是整个体系<strong>唯一能「随时间收紧而非退化」</strong>的机制。</p>
+      </div>
+
+      <h3 class="reveal">关键纪律</h3>
+      <div class="grid g3 reveal">
+        <div class="card"><span class="ic">🌱</span><h4>prompt 从真实逃逸生长</h4><p><code>audit-bot</code> 维度 agent 的每条 prompt 规则都应能追溯到一次真实逃逸,而非凭空设计。</p></div>
+        <div class="card"><span class="ic">✅</span><h4>产物是检查,不是文档</h4><p>没人会再读的事后分析不构成棘轮;一条永久运行的断言才构成。</p></div>
+        <div class="card"><span class="ic">📒</span><h4>维护逃逸登记册</h4><p>记录每次逃逸 + 织出的那条检查。既是复盘资产,也是「网在哪里收紧」的度量依据。</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- AI REVIEW -->
+  <section id="ai-review">
+    <div class="wrap">
+      <div class="sec-tag reveal"><span class="dot"></span>包裹 A · 连接三支柱</div>
+      <h2 class="reveal">AI <span class="accent">对抗式</span> review 层</h2>
+      <p class="lead reveal">把自研的 <code>audit-bot</code>(5 维度 agent)和平台的 <code>/code-review ultra</code> 正式做成 PR gate,喂给支柱 2 的分级。</p>
+
+      <div class="callout co-warn reveal">
+        <div class="ct">⚠️ 致命陷阱:相关性盲区</div>
+        <p>AI 审 AI 有<strong>相关性盲区</strong>——同源模型会在同样的地方一起瞎,给你「全绿」的虚假安心。<strong>这比没有 review 更危险</strong>,因为它制造了已审查的错觉。</p>
+      </div>
+
+      <h3 class="reveal">架构上强制三条</h3>
+      <div class="grid g3 reveal">
+        <div class="card"><span class="ic">🗡️</span><h4>对抗式而非背书式</h4><p>prompt 是「找出这个改动会怎样出错 / 违反哪条 CIP 不变量」,默认怀疑,而非「看起来还行吗」。</p></div>
+        <div class="card"><span class="ic">🎭</span><h4>视角多样化</h4><p>多 agent 用不同视角:正确性 / 规格符合 / 跨 repo 契约 / 安全 / 经济 / 确定性。靠分歧和 quorum 标记问题——冗余同视角抓不到多样失败。</p></div>
+        <div class="card"><span class="ic">📋</span><h4>结构化输出,不替代终审</h4><p>输出「发现+严重度+置信度」喂给分级路由。作用是扩大覆盖面、抬高地板、帮人聚焦,<strong>不替高危改动签字</strong>。</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CIP -->
+  <section id="cip">
+    <div class="wrap">
+      <div class="sec-tag reveal"><span class="dot"></span>§5 · 优先级最高的杠杆面</div>
+      <h2 class="reveal">CIP <span class="accent">规格层</span>治理</h2>
+      <p class="lead reveal">规格是放大器:一个有缺陷的 CIP 会<strong>复制进多个实现</strong>,危害指数放大。所以规格层门禁优先级高于代码层。</p>
+      <div class="grid reveal">
+        <div class="card"><span class="ic">🗺️</span><h4>1 · CIP 改动必须附结构化影响分析</h4><p>动了哪些不变量、影响哪些 crate/repo、兼容性/迁移、安全含义。AI 极擅长这种 fan-out——让它生成初稿,<strong>人只审这张「影响地图」</strong>,比审所有相关代码便宜得多。</p></div>
+        <div class="card"><span class="ic">📊</span><h4>2 · 维护 conformance matrix</h4><p>每条 CIP 要求 → 验证它的测试。gap 一目了然。与 <code>refs/wiki/drift.md</code> 漂移看板联动。</p></div>
+        <div class="card"><span class="ic">🚧</span><h4>3 · 硬门禁</h4><p>CIP 不能 merge,直到其 conformance 测试存在(或显式 waive 并记录原因+责任人)。把规格和验证强绑定,杜绝静默漂移。</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DEFENSE -->
+  <section id="defense">
+    <div class="wrap">
+      <div class="sec-tag reveal"><span class="dot"></span>包裹 B · 安全网</div>
+      <h2 class="reveal">运行时<span class="accent">纵深防御</span></h2>
+      <p class="lead reveal">承认 pre-merge 永远不完美,深层 bug 一定会漏过。目标是在它渗透到主网 / 用户之前抓住。</p>
+      <div class="grid g3 reveal">
+        <div class="card"><span class="ic">🧪</span><h4>devnet 常驻校验</h4><p>fuzzing / 不变量断言 / 差分重放(对照参考实现)。把支柱 1 的不变量也部署成运行时断言,而不只是 CI 测试。</p></div>
+        <div class="card"><span class="ic">⚖️</span><h4>复用 CIP-2 运行时机制</h4><p>dispute window(<code>DISPUTE_WINDOW_BLOCKS=75</code>)、verification modes(MajorityVote / Deterministic / EconomicBond)本身就是「运行时校验+经济惩罚」的纵深防御。扩展到执行层。</p></div>
+        <div class="card"><span class="ic">🐤</span><h4>金丝雀 / 灰度</h4><p>高危改动先在 devnet 跑足够长的真实负载(<code>benchmark/</code> WindTunnel)再上推。</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- METRICS -->
+  <section id="metrics">
+    <div class="wrap">
+      <div class="sec-tag reveal"><span class="dot"></span>§7 · 客观信号</div>
+      <h2 class="reveal">度量<span class="accent">体系</span></h2>
+      <p class="lead reveal">放进 <code>cowpilot</code> dashboard,作为方法论是否生效的客观信号,也是说服团队投入门禁建设的弹药。</p>
+
+      <div class="metric-viz reveal" data-viz="trend">
+        <h4>逃逸率(escape rate)· 目标方向</h4>
+        <div class="cap">merge 后才发现的 bug / 总 bug 数 — 随棘轮收紧应持续下降</div>
+        <svg viewBox="0 0 600 180" style="width:100%;height:auto">
+          <defs><linearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#2dd4bf" stop-opacity="0.35"/>
+            <stop offset="100%" stop-color="#2dd4bf" stop-opacity="0"/>
+          </linearGradient></defs>
+          <line x1="40" y1="10" x2="40" y2="150" stroke="#30363d" stroke-width="1"/>
+          <line x1="40" y1="150" x2="580" y2="150" stroke="#30363d" stroke-width="1"/>
+          <polygon class="trendarea" points="40,40 150,55 260,80 370,108 480,128 580,140 580,150 40,150"/>
+          <polyline class="trendline" points="40,40 150,55 260,80 370,108 480,128 580,140"/>
+          <text x="44" y="32" fill="#8b949e" font-size="11" font-family="monospace">高</text>
+          <text x="44" y="148" fill="#8b949e" font-size="11" font-family="monospace">低</text>
+          <text x="540" y="168" fill="#8b949e" font-size="11" font-family="monospace">时间 →</text>
+        </svg>
+      </div>
+
+      <table class="reveal">
+        <thead><tr><th>指标</th><th>定义</th><th>健康方向</th></tr></thead>
+        <tbody>
+          <tr><td><strong>逃逸率</strong></td><td>merge 后才发现的 bug / 总 bug 数</td><td style="color:var(--green)">↓ 持续下降</td></tr>
+          <tr><td><strong>平均发现时延</strong></td><td>bug 引入 → 发现的区块/天数</td><td style="color:var(--green)">↓ 越短越好</td></tr>
+          <tr><td><strong>分层 review 覆盖率</strong></td><td>各层按门禁要求被审的比例</td><td style="color:var(--teal)">高危层 = 100%</td></tr>
+          <tr><td><strong>CIP conformance %</strong></td><td>有测试覆盖的 CIP 要求 / 总要求</td><td style="color:var(--teal)">↑ 趋近 100%</td></tr>
+          <tr><td><strong>棘轮增量</strong></td><td>每次逃逸新增的永久检查数</td><td style="color:var(--teal)">≥ 1 / 逃逸</td></tr>
+          <tr><td><strong>不变量门禁数</strong></td><td>支柱 1 累计断言数</td><td style="color:var(--teal)">单调增</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ROADMAP -->
+  <section id="roadmap">
+    <div class="wrap">
+      <div class="sec-tag reveal"><span class="dot"></span>§8 · 按杠杆排序</div>
+      <h2 class="reveal">落地<span class="accent">路线图</span></h2>
+      <p class="lead reveal">每一步都可独立交付价值,不必等全套就绪。</p>
+      <div class="road reveal">
+        <div class="step"><div class="sn">1</div><h4>不变量门禁 + 逃逸棘轮(支柱 1+3)</h4><p>最高复利,天然增量——从「已经被咬过的地方」开始织网(如 <code>2**10000</code> 逃逸、gas 守恒)。</p></div>
+        <div class="step"><div class="sn">2</div><h4>风险分级路由 + 小 PR 约束(支柱 2)</h4><p>立刻缓解「审不过来」。</p></div>
+        <div class="step"><div class="sn">3</div><h4>对抗式 PR gate(包裹 A)</h4><p>把 <code>audit-bot</code> / <code>/code-review ultra</code> 接成门禁,注意防相关性盲区。</p></div>
+        <div class="step"><div class="sn">4</div><h4>CIP conformance matrix + 影响分析(§5)</h4><p>规格层杠杆最大但需流程共识,放在团队对前几步有信心之后。</p></div>
+        <div class="step"><div class="sn">5</div><h4>devnet 纵深防御 + 指标 dashboard</h4><p>持续推进。</p></div>
+      </div>
+      <div class="callout co-info reveal">
+        <div class="ct">💡 建议</div>
+        <p>不要试图一次铺开全部。挑一个切入点先跑通闭环——推荐<strong>「跨 repo tx 编码 conformance vectors」</strong>(直击 §1.3 盲区)或<strong>「经济守恒 property tests」</strong>(支柱 1 最干净的样板)。跑通一个,团队就有了信心和模板。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ANTIPATTERNS -->
+  <section id="antipatterns">
+    <div class="wrap">
+      <div class="sec-tag reveal"><span class="dot"></span>§9 · 明确不要做什么</div>
+      <h2 class="reveal">反模式<span class="accent">清单</span></h2>
+      <p class="lead reveal">悬停查看为什么错。</p>
+      <div class="grid g2 reveal">
+        <div class="ap"><div class="bad">✕ 招更多人 / 审得更快</div><div class="why">在产能不对称的错误维度加码(§1.1)。</div></div>
+        <div class="ap"><div class="bad">✕ 审得更细就能抓住深层 bug</div><div class="why">人眼不擅长抓不变量/契约类缺陷,网型不对(§1.2)。</div></div>
+        <div class="ap"><div class="bad">✕ 上了 AI reviewer 就放心了</div><div class="why">相关性盲区制造虚假安心,比没审更危险(§4)。</div></div>
+        <div class="ap"><div class="bad">✕ 只写 post-mortem 文档</div><div class="why">没人再读的文档不是棘轮;只有永久检查才是(§3)。</div></div>
+        <div class="ap"><div class="bad">✕ 先把全套体系建好再上线</div><div class="why">违背增量交付;应挑一个切入点跑通闭环(§8)。</div></div>
+        <div class="ap"><div class="bad">✕ CIP 先 merge,测试以后补</div><div class="why">规格层是放大器,静默漂移危害指数级(§5)。</div></div>
+        <div class="ap"><div class="bad">✕ 大 PR 一把梭</div><div class="why">庞大 diff 不可审,AI 尤其爱产出(支柱 2)。</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ASSETS -->
+  <section id="assets">
+    <div class="wrap">
+      <div class="sec-tag reveal"><span class="dot"></span>§10 · 组装而非重造</div>
+      <h2 class="reveal">与<span class="accent">现有资产</span>的映射</h2>
+      <p class="lead reveal">本方法论不要求从零造。注意区分<span class="tag-repo">● 自研仓库资产</span> 与 <span class="tag-plat">● Claude Code 平台能力</span>(后者在仓库里搜不到)。</p>
+      <table class="reveal">
+        <thead><tr><th>资产</th><th>类型</th><th>在方法论中的角色</th></tr></thead>
+        <tbody>
+          <tr><td><code>audit-bot/</code>(5 维度 agent)</td><td><span class="tag-repo">● 自研仓库</span></td><td>包裹 A 对抗式 review 执行体;从文档审计泛化到 PR/CIP 审计</td></tr>
+          <tr><td><code>/code-review ultra</code>(旧名 <code>/ultrareview</code>)</td><td><span class="tag-plat">● 平台能力</span></td><td>高危层强制多 agent 云端 review;用户手动触发、按量计费、需 git 仓库</td></tr>
+          <tr><td><code>cowpilot/</code>(CADP,MCP+dashboard)</td><td><span class="tag-repo">● 自研仓库</span></td><td>§7 度量体系承载面</td></tr>
+          <tr><td>CIP 体系(<code>refs/cips/</code>)</td><td><span class="tag-repo">● 自研仓库</span></td><td>§5 规格治理对象;conformance matrix 来源</td></tr>
+          <tr><td><code>refs/wiki/drift.md</code></td><td><span class="tag-repo">● 自研仓库</span></td><td>与 conformance matrix 联动的漂移看板</td></tr>
+          <tr><td><code>benchmark/</code>(WindTunnel)</td><td><span class="tag-repo">● 自研仓库</span></td><td>包裹 B 金丝雀 / 灰度的负载来源</td></tr>
+          <tr><td>CIP-2 dispute window / verification modes</td><td><span class="tag-repo">● 自研仓库</span></td><td>包裹 B 运行时纵深防御的现成范式</td></tr>
+          <tr><td><code>superpowers:brainstorming</code></td><td><span class="tag-plat">● 平台能力</span></td><td>支柱 2「先设计后写码」的执行工具</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- APPENDIX -->
+  <section id="appendix">
+    <div class="wrap">
+      <div class="sec-tag reveal"><span class="dot"></span>附录 · 落地细则</div>
+      <h2 class="reveal">附录:<span class="accent">不变量种子</span> / 分级路由</h2>
+      <p class="lead reveal">点击展开。所有具体常量均已对照真实仓库核验(2026-05-29)。</p>
+
+      <details class="exp reveal"><summary><span class="tw">▸</span>附录 A · 不变量种子清单(支柱 1 起点)<span class="ct">点击展开</span></summary>
+        <div class="body">
+          <h5>经济 / Gas</h5>
+          <ul>
+            <li><code>burn + tip == fee_total</code>(每 tx / 每 block)</li>
+            <li><code>escrow_balance >= 0</code> 恒成立(job_submit / settlement / cancel 全路径)</li>
+            <li><code>runner_percent + burn_percent + treasury_percent == 100</code>(默认 89/10/1,已核验)</li>
+            <li>dual-meter:计费 Cells == 实际 <code>key.len()+val.len()</code> 累计;Cycles == 实际操作累计</li>
+            <li>basefee 更新单调性:EIP-1559 公式对 target 上/下偏离方向正确</li>
+          </ul>
+          <h5>状态 / 共识</h5>
+          <ul>
+            <li>account nonce 单调递增,无跳号</li>
+            <li>Merkle root 在 propose / verify / report 三阶段对同一 batch 恒等</li>
+            <li>speculative rollback 后状态 == 执行前状态(含嵌套 actor 调用)</li>
+            <li>deferred tx:<code>pending_per_actor ≤ 64</code>;age ≤ <code>1000</code> blocks(均已核验)</li>
+          </ul>
+          <h5>跨 repo 契约</h5>
+          <ul>
+            <li><code>wallet</code> 编码 tx → <code>node</code> 解码字节级一致(golden vectors,双向)</li>
+            <li><code>runner</code> 的 RateCard / RunnerResult / VerifierCheck 与 <code>node/runner/src/types.rs</code> 序列化兼容</li>
+            <li>CIP 定义接口的每个方法签名 + 语义 conformance</li>
+          </ul>
+          <h5>PVM 确定性</h5>
+          <ul>
+            <li>黑名单 import(<code>ctypes</code>/<code>_ctypes</code>/<code>cffi</code>/<code>_cffi_backend</code>)被拒(已核验)</li>
+            <li>大整数:<code>int(2)**10000</code> 被 guard 拦截;<strong>bare literal <code>2**10000</code> 已知逃逸 → 棘轮盯死项</strong></li>
+            <li><code>asyncio.gather</code> ban;1234-digit int limit</li>
+            <li>同 actor + 同输入 → 跨节点字节级相同输出</li>
+          </ul>
+        </div>
+      </details>
+
+      <details class="exp reveal"><summary><span class="tw">▸</span>附录 B · 风险分级路由判定(支柱 2 实现要点)<span class="ct">点击展开</span></summary>
+        <div class="body">
+          <h5>判高危(命中任一)</h5>
+          <ul>
+            <li>路径含 <code>execution/{engine,transaction,system_instruction,basefee}</code> / <code>storage/{speculative,process_block}</code> / <code>chain/</code> 共识 / 任何 <code>crypto</code> / <code>*_root</code> 计算</li>
+            <li>改动跨 ≥2 个 repo,或触碰跨 repo 契约文件</li>
+            <li>PR 关联 CIP 标签为「新增」或「接口变更」</li>
+            <li>触碰系统 actor 地址逻辑(<code>0x06</code>/<code>0x09</code>/<code>0x91–0x95</code>;注:0x06 一址双用 Basefee+TokenRegistry,爆炸半径更大)</li>
+          </ul>
+          <h5>判中危</h5>
+          <ul><li>普通 actor 逻辑、RPC handler、非契约型 runner 代码</li></ul>
+          <h5>判低危</h5>
+          <ul><li>仅 <code>*.md</code> / 测试 / 脚本 / 注释</li></ul>
+          <div class="callout co-warn" style="margin-top:18px">
+            <div class="ct">⚠️ 分级器误判向上不向下</div>
+            <p>不确定时升一级,宁可多审不可漏审。</p>
+          </div>
+        </div>
+      </details>
+    </div>
+  </section>
+</main>
+
+<footer>
+  Cowboy · AI 高速研发下的质量工程方法论 v1 · 2026-05-29 ·
+</footer>
+
+<script>
+  // scroll progress
+  const prog=document.getElementById('progress');
+  function onScroll(){
+    const h=document.documentElement.scrollHeight-innerHeight;
+    prog.style.width=(scrollY/h*100)+'%';
+  }
+  addEventListener('scroll',onScroll,{passive:true});onScroll();
+
+  // nav scroll + scrollspy
+  const links=[...document.querySelectorAll('.nav-link')];
+  links.forEach(l=>l.addEventListener('click',()=>{
+    const el=document.getElementById(l.dataset.t);
+    if(el){el.scrollIntoView({behavior:'smooth'});closeMenu();}
+  }));
+  const sections=links.map(l=>document.getElementById(l.dataset.t)).filter(Boolean);
+  const spy=new IntersectionObserver(es=>{
+    es.forEach(e=>{
+      if(e.isIntersecting){
+        links.forEach(l=>l.classList.toggle('active',l.dataset.t===e.target.id));
+      }
+    });
+  },{rootMargin:'-45% 0px -50% 0px'});
+  sections.forEach(s=>spy.observe(s));
+
+  // reveal + viz animation
+  const revObs=new IntersectionObserver(es=>{
+    es.forEach(e=>{
+      if(e.isIntersecting){
+        e.target.classList.add('in');
+        // bars
+        e.target.querySelectorAll('.barfill,.lf').forEach(b=>{b.style.width=b.dataset.w+'%';});
+        // trend
+        if(e.target.matches('[data-viz="trend"]')||e.target.querySelector('[data-viz="trend"]')){
+          const c=e.target.matches('[data-viz="trend"]')?e.target:e.target.querySelector('[data-viz="trend"]');
+          const line=c.querySelector('.trendline');const area=c.querySelector('.trendarea');
+          if(line)line.style.strokeDashoffset='0';if(area)area.style.opacity='1';
+        }
+        revObs.unobserve(e.target);
+      }
+    });
+  },{threshold:.18});
+  document.querySelectorAll('.reveal,[data-viz]').forEach(el=>revObs.observe(el));
+
+  // mobile menu
+  const sb=document.getElementById('sidebar');const mb=document.getElementById('menubtn');
+  function closeMenu(){sb.classList.remove('open');}
+  mb.addEventListener('click',()=>sb.classList.toggle('open'));
+
+  // keyboard: arrow / space jump between sections (presenter aid)
+  let idx=0;
+  function snap(){const tops=sections.map(s=>Math.abs(s.getBoundingClientRect().top));idx=tops.indexOf(Math.min(...tops));}
+  addEventListener('keydown',e=>{
+    if(['ArrowDown','ArrowRight','PageDown'].includes(e.key)){e.preventDefault();snap();idx=Math.min(idx+1,sections.length-1);sections[idx].scrollIntoView({behavior:'smooth'});}
+    if(['ArrowUp','ArrowLeft','PageUp'].includes(e.key)){e.preventDefault();snap();idx=Math.max(idx-1,0);sections[idx].scrollIntoView({behavior:'smooth'});}
+    if(e.key==='Home'){e.preventDefault();scrollTo({top:0,behavior:'smooth'});}
+  });
+</script>
+</body>
+</html>
