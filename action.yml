@@ -1,0 +1,32 @@
+name: "Marshal Invariant Reporter"
+description: "向 Marshal 大脑拉取适用不变量, 在本 repo CI 执行并回报 (影子安全, 不阻断)"
+inputs:
+  brain-url:
+    description: "Marshal 大脑 URL"
+    required: true
+  repo:
+    description: "本 repo 在 Marshal 领域包中的标识"
+    required: true
+  base-ref:
+    description: "比较基线 (算 diff_paths), 默认 HEAD~1"
+    required: false
+    default: ""
+runs:
+  using: "composite"
+  steps:
+    - name: Compute diff paths
+      id: diff
+      shell: bash
+      run: |
+        BASE="${{ inputs.base-ref }}"
+        if [ -z "$BASE" ]; then BASE="$(git rev-parse HEAD~1 2>/dev/null || echo HEAD)"; fi
+        PATHS=$(git diff --name-only "$BASE"...HEAD 2>/dev/null | paste -sd, -)
+        echo "paths=$PATHS" >> "$GITHUB_OUTPUT"
+    - name: Run Marshal reporter
+      shell: bash
+      run: |
+        python3 "${{ github.action_path }}/src/marshal_core/executor/reporter.py" \
+          --brain-url "${{ inputs.brain-url }}" \
+          --repo "${{ inputs.repo }}" \
+          --change-ref "${GITHUB_SHA}" \
+          --diff-paths "${{ steps.diff.outputs.paths }}"
