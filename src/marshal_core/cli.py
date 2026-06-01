@@ -54,6 +54,17 @@ def cmd_classify(a) -> int:
     return _emit(_PACK.classify_detailed(scope))
 
 
+def cmd_invariants(a) -> int:
+    scope = {"repo": a.repo, "diff_paths": a.paths}
+    invs = _PACK.list_invariants(scope)
+    return _emit([
+        {"id": i.id, "severity": i.severity, "executor_kind": i.executor_kind,
+         "location_repo": i.location_repo, "location_path": i.location_path,
+         "location_test": i.location_test, "run_command": i.run_command}
+        for i in invs
+    ])
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="marshal")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -64,6 +75,11 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--diff-text", dest="diff_text", default="")
     c.add_argument("--labels", nargs="*", default=[])
     c.set_defaults(func=cmd_classify)
+
+    iv = sub.add_parser("invariants")
+    iv.add_argument("--repo", required=True)
+    iv.add_argument("--paths", nargs="*", default=[])
+    iv.set_defaults(func=cmd_invariants)
 
     return p
 
