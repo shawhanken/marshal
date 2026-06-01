@@ -3,10 +3,28 @@ from dataclasses import dataclass
 from marshal_core.domain_pack import InvariantDef
 
 _HIGH_PREFIXES = (
-    "execution/src/execution/",
+    "execution/src/execution/engine",
+    "execution/src/execution/transaction",
+    "execution/src/execution/system_instruction",
+    "execution/src/execution/basefee",
     "execution/src/runner/",
     "storage/src/speculative",
+    "storage/src/process_block",
+    "chain/",
 )
+_HIGH_SUBSTR = ("crypto", "_root")
+_LOW_SUFFIXES = (".md",)
+_LOW_SUBSTR = ("/tests/", "test_", "/scripts/", "tests.rs")
+_SYS_ADDR_TOKENS = ("0x06", "0x09", "0x91", "0x92", "0x93", "0x94", "0x95")
+
+REVIEW_DIMENSIONS = [
+    {"name": "correctness", "prompt": "找出这个改动会怎样产生错误结果或破坏现有行为。"},
+    {"name": "spec", "prompt": "实现是否偏离它所引用 CIP 的真实意图?指出语义漂移。"},
+    {"name": "cross-repo", "prompt": "这个改动是否破坏跨 repo 契约(编码/类型序列化字节兼容)?"},
+    {"name": "security", "prompt": "默认怀疑:有无越权、未校验输入、可被滥用的路径?"},
+    {"name": "econ", "prompt": "gas/费用/escrow 守恒是否被破坏?burn+tip==fee?escrow 非负?"},
+    {"name": "determinism", "prompt": "PVM 确定性:有无非确定来源、绕过 int guard、黑名单 import?"},
+]
 
 _ECON_INVARIANTS = [
     InvariantDef(id="econ.fee_conservation", domain="econ", spec_ref="CIP-3",
@@ -60,10 +78,42 @@ class CowboyPack:
         return list(_ECON_INVARIANTS)
 
     def classify(self, scope: dict) -> str:
+        return self.classify_detailed(scope)["tier"]
+
+    def classify_detailed(self, scope: dict) -> dict:
         paths = scope.get("diff_paths", [])
+        text = scope.get("diff_text", "")
+        reasons = []
+
+        contracts = self.contracts_hit(scope)
+        for cid in contracts:
+            reasons.append(f"cross_repo_contract:{cid}")
+
         if any(p.startswith(_HIGH_PREFIXES) for p in paths):
-            return "high"
-        return "mid"
+            reasons.append("high-risk path (execution/storage/chain consensus)")
+        if any(s in p for p in paths for s in _HIGH_SUBSTR):
+            reasons.append("crypto / *_root computation")
+        if any(t in text for t in _SYS_ADDR_TOKENS):
+            reasons.append("system actor address logic")
+        if any(lbl in ("cip:new", "cip:interface-change")
+               for lbl in scope.get("labels", [])):
+            reasons.append("CIP new / interface change")
+
+        if contracts or reasons:
+            tier = "high"
+        elif paths and all(p.endswith(_LOW_SUFFIXES) or any(s in p for s in _LOW_SUBSTR)
+                           for p in paths):
+            tier = "low"
+        else:
+            tier = "mid"
+            reasons.append("default mid (ordinary actor / RPC handler)")
+
+        return {"tier": tier, "reasons": reasons, "contracts_hit": contracts,
+                "review_dimensions": [d["name"] for d in self.review_plan(tier)]}
+
+    def review_plan(self, tier: str) -> list[dict]:
+        n = {"high": 6, "mid": 3, "low": 1}.get(tier, 3)
+        return REVIEW_DIMENSIONS[:n]
 
     def contracts_hit(self, scope: dict) -> list[str]:
         repo = scope.get("repo", "")
