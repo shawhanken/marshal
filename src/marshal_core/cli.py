@@ -65,6 +65,33 @@ def cmd_invariants(a) -> int:
     ])
 
 
+def cmd_ratchet_open(a) -> int:
+    s = _session()
+    try:
+        esc = Store(s).open_escape(
+            id=a.escape_id, description=a.desc, root_cause_class=a.root_cause,
+            change_ref=a.change_ref)
+        return _emit({"escape_id": esc.id})
+    finally:
+        s.close()
+
+
+def cmd_ratchet_close(a) -> int:
+    if not a.spawned_check:
+        return _fail("spawned_check is required to close an escape (棘轮纪律)")
+    inv = json.loads(a.inv_json)
+    inv.setdefault("domain_pack", "cowboy")  # InvariantRegistry.domain_pack 非空
+    s = _session()
+    try:
+        store = Store(s)
+        store.register_invariant(**inv, origin="ratchet", escape_id=a.escape_id)
+        store.close_escape(a.escape_id, spawned_check=a.spawned_check)
+        return _emit({"ok": True, "escape_id": a.escape_id,
+                      "spawned_check": a.spawned_check})
+    finally:
+        s.close()
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="marshal")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -80,6 +107,19 @@ def build_parser() -> argparse.ArgumentParser:
     iv.add_argument("--repo", required=True)
     iv.add_argument("--paths", nargs="*", default=[])
     iv.set_defaults(func=cmd_invariants)
+
+    ro = sub.add_parser("ratchet-open")
+    ro.add_argument("--escape-id", dest="escape_id", required=True)
+    ro.add_argument("--desc", required=True)
+    ro.add_argument("--root-cause", dest="root_cause", default="")
+    ro.add_argument("--change-ref", dest="change_ref", default=None)
+    ro.set_defaults(func=cmd_ratchet_open)
+
+    rc = sub.add_parser("ratchet-close")
+    rc.add_argument("--escape-id", dest="escape_id", required=True)
+    rc.add_argument("--spawned-check", dest="spawned_check", default="")
+    rc.add_argument("--inv-json", dest="inv_json", required=True)
+    rc.set_defaults(func=cmd_ratchet_close)
 
     return p
 
