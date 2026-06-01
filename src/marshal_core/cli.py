@@ -92,6 +92,20 @@ def cmd_ratchet_close(a) -> int:
         s.close()
 
 
+def cmd_gate_record(a) -> int:
+    gates = json.loads(a.evidence_json)
+    s = _session()
+    try:
+        store = Store(s)
+        run = store.record_gate_run(change_ref=a.change_ref, job_id=a.change_ref,
+                                    verdict=a.verdict, evidence={"gates": gates})
+        store.audit(event="gate_decision", actor="marshal-skill",
+                    decision=a.verdict, refs={"change_ref": a.change_ref})
+        return _emit({"run_id": run.id})
+    finally:
+        s.close()
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="marshal")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -120,6 +134,13 @@ def build_parser() -> argparse.ArgumentParser:
     rc.add_argument("--spawned-check", dest="spawned_check", default="")
     rc.add_argument("--inv-json", dest="inv_json", required=True)
     rc.set_defaults(func=cmd_ratchet_close)
+
+    gr = sub.add_parser("gate-record")
+    gr.add_argument("--change-ref", dest="change_ref", required=True)
+    gr.add_argument("--verdict", required=True,
+                    choices=["pass", "block", "needs_human"])
+    gr.add_argument("--evidence-json", dest="evidence_json", default="[]")
+    gr.set_defaults(func=cmd_gate_record)
 
     return p
 

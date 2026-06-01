@@ -71,3 +71,12 @@ def test_ratchet_close_without_spawned_check_fails(tmp_path):
                "--spawned-check", "", "--inv-json", "{}"], env=db)
     assert cl.returncode == 1
     assert "error" in json.loads(cl.stdout)
+
+
+def test_gate_record_persists_run(tmp_path):
+    db = {"MARSHAL_DB": f"sqlite:///{tmp_path/'g.db'}"}
+    ev = json.dumps([{"name": "invariants", "outcome": "pass", "evidence_ref": "inv-x"}])
+    proc = _run(["gate-record", "--change-ref", "abc123", "--verdict", "pass",
+                 "--evidence-json", ev], env=db)
+    assert proc.returncode == 0, proc.stderr
+    assert isinstance(json.loads(proc.stdout)["run_id"], int)
