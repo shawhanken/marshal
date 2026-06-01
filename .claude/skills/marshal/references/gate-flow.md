@@ -23,3 +23,4 @@
 ## 落库与回写
 - `"$PY" -m marshal_core.cli gate-record --change-ref <ref> --verdict <v> --evidence-json '<gates JSON>'`
 - 有 PR# 且用户要:把发现贴成 PR 评论(可借 `/code-review ultra` 的 --comment)。
+  **所有 GitHub 评论一律用英文**(PR comment / review / 描述);终端给用户的摘要仍按对话语言(中文)。
