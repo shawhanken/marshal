@@ -35,3 +35,8 @@ class GateDecision(BaseModel):
     tier: Literal["high", "mid", "low"]
     gates: list[dict] = []      # [{name, outcome, evidence_ref}]
     verdict: Literal["pass", "block", "needs_human"]
+
+
+class PlanResponse(BaseModel):
+    job_id: str
+    invariants: list[dict] = []   # [{invariant_id, run_command}]

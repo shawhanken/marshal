@@ -1,5 +1,7 @@
 """事件路由 / 编排 (本切片: PR → 不变量门禁 → 决策)。"""
-from marshal_core.contracts import NormalizedEvent, DispatchJob, StructuredResult, GateDecision
+from marshal_core.contracts import (
+    NormalizedEvent, DispatchJob, StructuredResult, GateDecision, PlanResponse,
+)
 from marshal_core.domain_pack import DomainPack
 from marshal_core.knowledge.store import Store
 from marshal_core.modules.invariant_gate import InvariantGate
@@ -33,3 +35,14 @@ class Orchestrator:
         self.store.audit(event="decision", decision=decision.verdict,
                          refs={"change_ref": event.change_ref})
         return decision
+
+    def plan(self, event: NormalizedEvent) -> PlanResponse:
+        """告诉 CI 执行器: 本次改动跑哪些不变量、各自怎么跑。复用 handle_event 的登记。"""
+        job = self.handle_event(event)
+        invs = self.pack.list_invariants({"repo": event.repo,
+                                          "diff_paths": event.diff_paths})
+        return PlanResponse(
+            job_id=job.job_id,
+            invariants=[{"invariant_id": i.id, "run_command": i.run_command}
+                        for i in invs],
+        )
