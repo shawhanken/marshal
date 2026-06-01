@@ -20,7 +20,7 @@ def test_system_address_change_is_high():
 def test_contract_hit_forces_high():
     pack = CowboyPack()
     d = pack.classify_detailed({"repo": "wallet",
-                                "diff_paths": ["src/tx/encode.js"]})
+                                "diff_paths": ["src/lib/cbor.js"]})
     assert d["tier"] == "high"
     assert "tx-encoding" in d["contracts_hit"]
     assert any("cross_repo_contract" in r for r in d["reasons"])

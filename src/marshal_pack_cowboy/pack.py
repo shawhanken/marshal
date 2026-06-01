@@ -55,8 +55,8 @@ class Contract:
 
 CONTRACTS = [
     Contract(id="tx-encoding", repos=["wallet", "node"],
-             trigger_paths={"wallet": ["src/tx/"],
-                            "node": ["types/src/transaction"]},
+             trigger_paths={"wallet": ["src/lib/cbor", "src/lib/codec"],
+                            "node": ["types/src/execution"]},
              verify_invariants=["contract.tx_encoding_roundtrip"]),
     Contract(id="runner-types", repos=["runner", "node"],
              trigger_paths={"runner": ["crates/runner-common/src/types"],
@@ -70,7 +70,7 @@ _CONTRACT_INVARIANTS = {
     "contract.tx_encoding_roundtrip": InvariantDef(
         id="contract.tx_encoding_roundtrip", domain="cross-repo", spec_ref="CIP-?",
         executor_kind="conformance-vector", location_repo="node",
-        location_path="types/src/transaction.rs", location_test="tx_encoding_golden_vectors",
+        location_path="types/src/execution.rs", location_test="tx_encoding_golden_vectors",
         severity="high",
         run_command=["cargo", "test", "-p", "cowboy-types", "tx_encoding_golden_vectors",
                      "--", "--exact"]),

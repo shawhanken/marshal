@@ -4,14 +4,14 @@ from marshal_pack_cowboy.pack import CowboyPack
 def test_wallet_tx_encoding_change_hits_contract():
     pack = CowboyPack()
     hit = pack.contracts_hit({"repo": "wallet",
-                              "diff_paths": ["src/tx/encode.js"]})
+                              "diff_paths": ["src/lib/cbor.js"]})
     assert "tx-encoding" in hit
 
 
 def test_node_transaction_change_hits_tx_contract():
     pack = CowboyPack()
     hit = pack.contracts_hit({"repo": "node",
-                              "diff_paths": ["types/src/transaction.rs"]})
+                              "diff_paths": ["types/src/execution.rs"]})
     assert "tx-encoding" in hit
 
 
@@ -32,7 +32,7 @@ def test_unrelated_change_hits_nothing():
 def test_wallet_change_surfaces_tx_contract_invariant():
     pack = CowboyPack()
     invs = pack.list_invariants({"repo": "wallet",
-                                 "diff_paths": ["src/tx/encode.js"]})
+                                 "diff_paths": ["src/lib/cbor.js"]})
     ids = [i.id for i in invs]
     assert "contract.tx_encoding_roundtrip" in ids
     # 该契约不变量本体住在 node

@@ -81,6 +81,12 @@ def cmd_ratchet_close(a) -> int:
         return _fail("spawned_check is required to close an escape (棘轮纪律)")
     inv = json.loads(a.inv_json)
     inv.setdefault("domain_pack", "cowboy")  # InvariantRegistry.domain_pack 非空
+    # 知识核只存引用(repo+path+test-name),不存可执行命令(spec §3.4);
+    # 丢弃 InvariantDef 上有、但 InvariantRegistry 表没有的字段(如 run_command)。
+    _REGISTRY_FIELDS = {"id", "domain_pack", "domain", "spec_ref", "executor_kind",
+                        "location_repo", "location_path", "location_test", "severity",
+                        "status"}
+    inv = {k: v for k, v in inv.items() if k in _REGISTRY_FIELDS}
     s = _session()
     try:
         store = Store(s)
