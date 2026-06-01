@@ -11,15 +11,18 @@ _ECON_INVARIANTS = [
     InvariantDef(id="econ.fee_conservation", domain="econ", spec_ref="CIP-3",
                  executor_kind="proptest", location_repo="node",
                  location_path="execution/src/econ_invariants.rs",
-                 location_test="prop_fee_conservation", severity="high"),
+                 location_test="prop_fee_conservation", severity="high",
+                 run_command=["cargo", "test", "-p", "cowboy-execution", "prop_fee_conservation", "--", "--exact"]),
     InvariantDef(id="econ.settlement_sum_100", domain="econ", spec_ref="CIP-2",
                  executor_kind="proptest", location_repo="node",
                  location_path="execution/src/econ_invariants.rs",
-                 location_test="prop_settlement_sum_100", severity="high"),
+                 location_test="prop_settlement_sum_100", severity="high",
+                 run_command=["cargo", "test", "-p", "cowboy-execution", "prop_settlement_sum_100", "--", "--exact"]),
     InvariantDef(id="econ.escrow_non_negative", domain="econ", spec_ref="CIP-2",
                  executor_kind="proptest", location_repo="node",
                  location_path="execution/src/econ_invariants.rs",
-                 location_test="prop_escrow_non_negative", severity="high"),
+                 location_test="prop_escrow_non_negative", severity="high",
+                 run_command=["cargo", "test", "-p", "cowboy-execution", "prop_escrow_non_negative", "--", "--exact"]),
 ]
 
 
