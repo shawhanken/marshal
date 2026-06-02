@@ -22,6 +22,8 @@ description: Use when reviewing a change before merge — runs the Marshal quali
 - `/marshal`            → 流 A,diff = 当前分支 vs base
 - `/marshal <PR#>`      → 流 A,diff = `gh pr diff <PR#>`,change_ref = PR head SHA
 - `/marshal ratchet "<bug>"` → 流 C
+- `/marshal conformance` → ⑤ 规格符合度报告(见 `references/conformance-flow.md`)
+- 若流 A 的 diff 命中规格层文件(cowboy `docs/cips/**` 或 `docs/whitepaper/**`)→ 叠加流 B(见下)
 
 ## 流 A — 门禁评估
 
@@ -33,6 +35,13 @@ description: Use when reviewing a change before merge — runs the Marshal quali
 5. 汇总 `GateDecision`:任一不变量 fail→block;高危+确认高severity发现→needs_human;跑不起来/超预算→needs_human+degraded;否则 pass。
 6. `cli gate-record` 落库;有 PR# 且用户要 → 贴 PR 评论;终端打印摘要。
 7. 若在已合并代码上确认高severity发现 → 提议转流 C。
+
+## 流 B — 规格层改动 / conformance(⑤)
+
+详见 `references/conformance-flow.md`。要点:
+- `/marshal conformance`:`cli conformance --spec-root <workspace>/cowboy` → 打印 CIP conformance% + 最欠覆盖网洞(MUST 数 vs 不变量数排序)。
+- diff 命中 `cowboy docs/cips/**`(修正案)或 `docs/whitepaper/**`(宪法)→ 升 tier(**动白皮书=最高**),对改动的 CIP 跑 `cli spec-requirements --ref CIP-N --spec-root <workspace>/cowboy` 抽 requirement,并查它当前被哪些不变量覆盖;新增/接口变更 CIP 而无对应不变量 → 提示补(可转流 C)。
+- **不替人裁治理冲突**:宪法↔修正案静默抵触只标 `needs_human`,不自动 block(治理 a 档)。
 
 ## 流 C — 逃逸棘轮
 
