@@ -1,5 +1,5 @@
 """知识核读写薄封装。"""
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 from .models import InvariantRegistry, GateRun, AuditLog, EscapeRegistry
 
@@ -51,6 +51,43 @@ class Store:
     def list_open_escapes(self) -> list[EscapeRegistry]:
         stmt = select(EscapeRegistry).where(EscapeRegistry.status == "open")
         return list(self.s.scalars(stmt))
+
+    def metrics(self) -> dict:
+        """⑦ 度量: 从知识核聚合方法论指标。诚实标注当前数据模型不支持的指标
+        (escape_rate 缺总-bug 分母;time_to_detection 缺 introduced_at 时间戳;
+        tiered_review_coverage 缺 Classifications 表),给 null + reason,不瞎编。
+        """
+        def _count(model, *where):
+            stmt = select(func.count()).select_from(model)
+            for w in where:
+                stmt = stmt.where(w)
+            return self.s.scalar(stmt)
+
+        inv_active = _count(InvariantRegistry, InvariantRegistry.status == "active")
+        inv_ratchet = _count(InvariantRegistry, InvariantRegistry.status == "active",
+                             InvariantRegistry.origin == "ratchet")
+        esc_open = _count(EscapeRegistry, EscapeRegistry.status == "open")
+        esc_closed = _count(EscapeRegistry, EscapeRegistry.status == "closed")
+        gate_total = _count(GateRun)
+        gate_by_verdict = {
+            v: _count(GateRun, GateRun.verdict == v)
+            for v in ("pass", "block", "needs_human")
+        }
+        return {
+            "invariant_gate_count": inv_active,
+            "ratchet_invariants": inv_ratchet,
+            "escapes_open": esc_open,
+            "escapes_closed": esc_closed,
+            "ratchet_increment": esc_closed,   # 每个 closed escape 至少织出一条检查
+            "gate_runs_total": gate_total,
+            "gate_runs_by_verdict": gate_by_verdict,
+            "unavailable": {
+                "escape_rate": "needs a total-bug denominator (not tracked)",
+                "mean_time_to_detection": "needs introduced_at as a timestamp (currently free string)",
+                "tiered_review_coverage": "needs a Classifications table (not modeled in this slice)",
+                "cip_conformance_pct": "use `conformance --spec-root <cowboy>`",
+            },
+        }
 
     def close_escape(self, escape_id: str, spawned_check: str) -> EscapeRegistry:
         if not spawned_check:

@@ -181,6 +181,15 @@ def cmd_gate_record(a) -> int:
         s.close()
 
 
+def cmd_metrics(a) -> int:
+    # ⑦ 从知识核聚合方法论指标 (按需报告)。
+    s = _session()
+    try:
+        return _emit(Store(s).metrics())
+    finally:
+        s.close()
+
+
 def cmd_setup(a) -> int:
     home = _marshal_home()
     skill_src = home / ".claude" / "skills" / "marshal"
@@ -264,6 +273,9 @@ def build_parser() -> argparse.ArgumentParser:
                     choices=["pass", "block", "needs_human"])
     gr.add_argument("--evidence-json", dest="evidence_json", default="[]")
     gr.set_defaults(func=cmd_gate_record)
+
+    mt = sub.add_parser("metrics")
+    mt.set_defaults(func=cmd_metrics)
 
     st = sub.add_parser("setup")
     st.set_defaults(func=cmd_setup)

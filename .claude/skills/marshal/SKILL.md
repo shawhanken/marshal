@@ -23,6 +23,7 @@ description: Use when reviewing a change before merge — runs the Marshal quali
 - `/marshal <PR#>`      → 流 A,diff = `gh pr diff <PR#>`,change_ref = PR head SHA
 - `/marshal ratchet "<bug>"` → 流 C
 - `/marshal conformance` → ⑤ 规格符合度报告(见 `references/conformance-flow.md`)
+- `/marshal metrics` → ⑦ 度量报告:`cli metrics`(不变量数/棘轮增量/逃逸开关/门禁判决分布);conformance% 另跑 `/marshal conformance`。诚实呈现 `unavailable` 指标,不补造数
 - 若流 A 的 diff 命中规格层文件(cowboy `docs/cips/**` 或 `docs/whitepaper/**`)→ 叠加流 B(见下)
 
 ## 流 A — 门禁评估
