@@ -14,6 +14,27 @@ _HIGH_PREFIXES = (
     "chain/",
 )
 _HIGH_SUBSTR = ("crypto", "_root")
+
+# Per-repo 高危路径前缀 (repo -> (prefixes, reason))。node 用上面的 _HIGH_PREFIXES;
+# cbss/cbfs 的核心安全/正确性面在此 —— 否则普通子串规则会把它们误判成 mid。
+# 路径相对各自 repo 根:cbss 是 crates/…(workspace),cbfs 是扁平 crate 目录。
+_REPO_HIGH_PREFIXES = {
+    "cbss": (
+        # threshold-IBE / DKG / 封缄 / 部分签名 / 密钥托管 (机密性+正确性双关键)
+        ("crates/cbss-crypto/",
+         "crates/cbssd/src/cip7_content_key_seal", "crates/cbssd/src/cip9_volume_seal",
+         "crates/cbssd/src/partial_sign", "crates/cbssd/src/dkg_driver",
+         "crates/cbssd/src/reshare_driver", "crates/cbssd/src/commonware_dkg",
+         "crates/cbssd/src/chain_authorizer", "crates/cbssd/src/keychain",
+         "crates/cbssd/src/share_storage"),
+        "cbss threshold-IBE / DKG / key-custody surface (CIP-7/CIP-9/CIP-24)"),
+    "cbfs": (
+        # 机密性(crypto) / 数据可恢复性(erasure) / 持久性(placement) /
+        # 访问控制(auth) / 完整性元数据(manifest) / 跨 repo 共享类型(cowboy-ras)
+        ("crypto/", "erasure/", "placement/", "auth/", "manifest/", "cowboy-ras/"),
+        "cbfs integrity/confidentiality surface (crypto/erasure/placement/auth/manifest)"),
+}
+
 _LOW_SUFFIXES = (".md",)
 _LOW_SUBSTR = ("/tests/", "test_", "/scripts/", "tests.rs")
 _SYS_ADDR_TOKENS = ("0x06", "0x09", "0x91", "0x92", "0x93", "0x94", "0x95")
@@ -63,6 +84,24 @@ CONTRACTS = [
              trigger_paths={"runner": ["crates/runner-common/src/types"],
                             "node": ["runner/src/types"]},
              verify_invariants=["contract.runner_types_serde"]),
+    # CIP-9 RAS: 共享 crate cowboy-ras 的元数据/存储键线格式. 权威源住 node/ras/
+    # (package cowboy-ras, 由 node/runner/cbfs 共依); cbfs 自带一份 cowboy-ras/.
+    # 任一侧动 RAS 类型/存储键 → 必须重跑 node 侧锁定金标准哈希向量, 否则跨 repo
+    # 元数据线格式漂移 (CIP-9 §存储布局).
+    Contract(id="cip9-ras", repos=["cbfs", "node"],
+             trigger_paths={"cbfs": ["cowboy-ras/src", "manifest/src"],
+                            "node": ["ras/src/types", "ras/src/storage_keys",
+                                     "ras/src/test_vectors"]},
+             verify_invariants=["contract.ras_canonical_vectors"]),
+    # CIP-24 CBSS: 秘密释放管线的链上线格式. cbss daemon 的链类型/授权 (cbss-types,
+    # cbssd chain_tx/chain_authorizer) ↔ node types/src/cbss.rs (cowboy-types).
+    # 任一侧动这些类型 → 重跑 node 侧 CBSS 编码往返族 (release_request_body 为代表)。
+    Contract(id="cip24-cbss", repos=["cbss", "node"],
+             trigger_paths={"cbss": ["crates/cbss-types/src",
+                                     "crates/cbssd/src/chain_tx",
+                                     "crates/cbssd/src/chain_authorizer"],
+                            "node": ["types/src/cbss"]},
+             verify_invariants=["contract.cbss_wire_round_trip"]),
 ]
 
 _CONTRACT_BY_ID = {c.id: c for c in CONTRACTS}
@@ -82,6 +121,27 @@ _CONTRACT_INVARIANTS = {
         severity="high",
         run_command=["cargo", "test", "-p", "cowboy-node-runner", "runner_types_serde_compat",
                      "--", "--exact"]),
+    # 真实锚点: node/ras/src/test_vectors.rs 的锁定金标准哈希向量 (已验证存在且绿)。
+    # 顶层 #[test] (mod test_vectors), 用子串过滤, 不加 --exact。
+    "contract.ras_canonical_vectors": InvariantDef(
+        id="contract.ras_canonical_vectors", domain="cross-repo", spec_ref="CIP-9",
+        executor_kind="conformance-vector", location_repo="node",
+        location_path="ras/src/test_vectors.rs",
+        location_test="test_vectors::locked_canonical_hashes_match_expected",
+        severity="high",
+        run_command=["cargo", "test", "-p", "cowboy-ras",
+                     "locked_canonical_hashes_match_expected"]),
+    # 真实锚点: node/types/src/cbss.rs 的 CBSS 编码往返族, 以 release_request_body
+    # (CIP-24 释放请求核心线类型) 为代表 (已验证存在且绿)。mod tests, 用 module-path
+    # 子串过滤。
+    "contract.cbss_wire_round_trip": InvariantDef(
+        id="contract.cbss_wire_round_trip", domain="cross-repo", spec_ref="CIP-24",
+        executor_kind="conformance-vector", location_repo="node",
+        location_path="types/src/cbss.rs",
+        location_test="cbss::tests::release_request_body_round_trip",
+        severity="high",
+        run_command=["cargo", "test", "-p", "cowboy-types",
+                     "cbss::tests::release_request_body_round_trip"]),
 }
 
 # State/consensus invariant family — harvested from the knowledge core into the
@@ -155,7 +215,16 @@ class SecurityHazard:
 SECURITY_HAZARDS = [
     SecurityHazard(
         id="cbss-mpk-rpc-exposure",
-        when_paths=("cbss-crypto/", "cowboy-py/", "cbss/"),
+        # node 仓打包的 crate (cbss-crypto/, cowboy-py/) + cbss 仓真实路径:
+        # crates/cbss-crypto/ 全体, 以及 cbssd 中真正做密钥派生/封缄/份额的文件
+        # (不含 config/transport 等普通守护代码, 否则误报)。
+        when_paths=("cbss-crypto/", "cowboy-py/", "crates/cbss-crypto/",
+                    "crates/cbssd/src/cip7_content_key_seal",
+                    "crates/cbssd/src/cip9_volume_seal",
+                    "crates/cbssd/src/hpke_identity",
+                    "crates/cbssd/src/keychain",
+                    "crates/cbssd/src/share_storage",
+                    "crates/cbssd/src/partial_sign"),
         title="confidentiality of key derivation against a publicly exposed master key",
         prompt=("默认怀疑机密性而非功能性。CBSS master public key (mpk_g2) 经 RPC 公开 "
                 "(/cbss/account-release-key/...)。检查任何 DEK / wrap-key 派生是否只用了"
@@ -250,6 +319,9 @@ class CowboyPack:
 
         if any(p.startswith(_HIGH_PREFIXES) for p in paths):
             reasons.append("high-risk path (execution/storage/chain consensus)")
+        repo_high = _REPO_HIGH_PREFIXES.get(scope.get("repo", ""))
+        if repo_high and any(p.startswith(repo_high[0]) for p in paths):
+            reasons.append(repo_high[1])
         if any(s in p for p in paths for s in _HIGH_SUBSTR):
             reasons.append("crypto / *_root computation")
         for hz in self.security_hazards(scope):
