@@ -45,6 +45,21 @@ def test_invariants_cross_repo_contract():
     assert "contract.tx_encoding_roundtrip" in [i["id"] for i in out]
 
 
+def test_review_quorum_escalates_high_and_drops_lone_low():
+    findings = json.dumps([
+        {"file": "x.rs", "line": 1, "dimension": "security", "severity": "high",
+         "source": "lens-security", "title": "auth bypass"},
+        {"file": "y.rs", "line": 2, "dimension": "style", "severity": "low",
+         "source": "lens-correctness", "title": "nit"},
+    ])
+    proc = _run(["review-quorum", "--findings-json", findings])
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    assert out["review_verdict"] == "needs_human"
+    assert len(out["needs_human"]) == 1
+    assert len(out["dropped"]) == 1
+
+
 def test_spec_source_resolves_cip():
     proc = _run(["spec-source", "--ref", "CIP-3"])
     assert proc.returncode == 0, proc.stderr

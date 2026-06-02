@@ -17,7 +17,13 @@
 3. 把 glob 落到工作区:`<workspace>/<repo>/<path_glob>`(Cowboy 规格源在 `cowboy` 仓库,本地 `/home/ubuntu/workspace/cowboy`;远端 github.com/cowboyinc/cowboy `docs/{cips,whitepaper}`)。`ls`/glob 命中后**读该文件**,喂给 spec 视角的 agent。
 4. 读不到(本地无 cowboy clone / glob 未命中)→ spec 视角**标 degraded**,别假装比对过。
 
-## 执行
-- 优先复用 `/code-review ultra`(云端多 agent)做高危层 review。
-- 若 `/code-review ultra` 不可用或超预算 → 降级为本地少视角 review,并**显式标 degraded**。
-- 把确认的高 severity 发现汇入流 A 的 GateDecision;如发生在已合并代码,提议转流 C。
+## 执行(多视角 fan-out → quorum 收敛)
+1. 按 `review_dimensions` **并行派出每视角一个 subagent**(各自默认怀疑、独立、视角互异;可用不同模型增大多样性)。每个 agent 返回结构化发现:`{file, line, dimension, severity(low|mid|high), source:<lens名>, title}`。
+2. 把所有发现汇成 JSON,过 quorum 聚合器:
+   ```
+   "$PY" -m marshal_core.cli review-quorum --findings-json '<findings>' [--quorum 2]
+   ```
+   → `{groups, needs_human, confirmed, dropped, review_verdict}`。规则:同 key(file:line:dimension)按**不同视角数**计票;达 quorum→confirmed;**任一高危→needs_human(终审归人,哪怕单视角)**;孤立低危→当噪声丢弃。
+3. `review_verdict` 汇入流 A 第 5 步的 GateDecision;`needs_human` 列表是要人看的高危发现。
+4. 也可叠加 `/code-review ultra`(云端多 agent)作为额外一路视角喂进同一聚合;它需人触发/计费,**skill 自己拉不起**——拉不到就少一路并**显式标 degraded**,绝不假装跑过。
+- 如高 severity 发现落在**已合并代码**,提议转流 C(棘轮)。
