@@ -74,6 +74,30 @@ def test_cip9_and_cip24_now_in_conformance_matrix():
     assert "contract.cbss_wire_round_trip" in m.get("CIP-24", [])
 
 
+def test_cbfs_erasure_domain_invariant_fires():
+    invs = {i.id: i for i in PACK.list_invariants(
+        {"repo": "cbfs", "diff_paths": ["erasure/src/lib.rs"]})}
+    assert "cbfs.erasure_any_k_reconstructs" in invs
+    i = invs["cbfs.erasure_any_k_reconstructs"]
+    assert i.location_repo == "cbfs" and i.spec_ref == "CIP-9"
+    assert "prop_any_k_subset_reconstructs" in i.run_command
+
+
+def test_cbss_threshold_domain_invariant_fires():
+    invs = {i.id: i for i in PACK.list_invariants(
+        {"repo": "cbss", "diff_paths": ["crates/cbss-crypto/src/threshold.rs"]})}
+    assert "cbss.threshold_any_t_recovers" in invs
+    i = invs["cbss.threshold_any_t_recovers"]
+    assert i.location_repo == "cbss" and i.spec_ref == "CIP-24"
+    assert "prop_any_t_subset_recovers" in i.run_command
+
+
+def test_domain_invariants_in_conformance_matrix():
+    m = PACK.conformance_matrix()
+    assert "cbfs.erasure_any_k_reconstructs" in m.get("CIP-9", [])
+    assert "cbss.threshold_any_t_recovers" in m.get("CIP-24", [])
+
+
 def test_cbss_cbfs_ordinary_paths_still_not_overclassified():
     # 普通守护/配置路径不应被新规则误升 (除非命中契约/危险点)。
     assert PACK.classify({"repo": "cbss", "diff_paths": ["crates/cbssd/src/config.rs"]}) == "mid"

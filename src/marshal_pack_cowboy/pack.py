@@ -194,6 +194,33 @@ _CRYPTO_INVARIANTS = [
 ]
 
 
+# cbfs 领域不变量 (住 cbfs 仓)。CIP-9 耐久性核心: erasure 编码后任意 K/(K+M) 分片
+# 可精确重建。真实 proptest, 已验证通过 (proptest sweep, 模块内嵌 → 子串过滤)。
+# 碰 erasure/ 时触发。
+_CBFS_PREFIXES = ("erasure/",)
+_CBFS_INVARIANTS = [
+    InvariantDef(id="cbfs.erasure_any_k_reconstructs", domain="storage", spec_ref="CIP-9",
+                 executor_kind="proptest", location_repo="cbfs",
+                 location_path="erasure/src/lib.rs",
+                 location_test="tests::prop_any_k_subset_reconstructs", severity="high",
+                 run_command=["cargo", "test", "-p", "cbfs-erasure",
+                              "prop_any_k_subset_reconstructs"]),
+]
+
+# cbss 领域不变量 (住 cbss 仓)。CIP-24 释放正确性核心: 任意 t-quorum 的部分签名
+# Lagrange 组合恢复同一 identity*secret, 任意 <t 失败。真实 proptest, 已验证通过。
+# 碰 crates/cbss-crypto/ 时触发。
+_CBSS_PREFIXES = ("crates/cbss-crypto/",)
+_CBSS_INVARIANTS = [
+    InvariantDef(id="cbss.threshold_any_t_recovers", domain="crypto", spec_ref="CIP-24",
+                 executor_kind="proptest", location_repo="cbss",
+                 location_path="crates/cbss-crypto/src/threshold.rs",
+                 location_test="threshold::tests::prop_any_t_subset_recovers", severity="high",
+                 run_command=["cargo", "test", "-p", "cbss-crypto",
+                              "prop_any_t_subset_recovers"]),
+]
+
+
 # 安全信任边 / 危险点 (架构: 否定性·对抗性属性,不可往返化)。
 # 教训源 = almanax 在 node #470 标出的 Critical:`cbss_encrypt_secret` 把 wrap key
 # 派生成 `pairing(H1(aad), mpk_g2)`,无 per-message 随机数,而 `mpk_g2` 经 RPC
@@ -290,12 +317,19 @@ class CowboyPack:
 
     def list_invariants(self, scope: dict) -> list[InvariantDef]:
         out = []
+        paths = scope.get("diff_paths", [])
         if scope.get("repo") == "node":
             out.extend(_ECON_INVARIANTS)
-            if any(p.startswith(_STATE_PREFIXES) for p in scope.get("diff_paths", [])):
+            if any(p.startswith(_STATE_PREFIXES) for p in paths):
                 out.extend(_STATE_INVARIANTS)
-            if any(p.startswith(_CRYPTO_PREFIXES) for p in scope.get("diff_paths", [])):
+            if any(p.startswith(_CRYPTO_PREFIXES) for p in paths):
                 out.extend(_CRYPTO_INVARIANTS)
+        elif scope.get("repo") == "cbfs":
+            if any(p.startswith(_CBFS_PREFIXES) for p in paths):
+                out.extend(_CBFS_INVARIANTS)
+        elif scope.get("repo") == "cbss":
+            if any(p.startswith(_CBSS_PREFIXES) for p in paths):
+                out.extend(_CBSS_INVARIANTS)
         seen = {i.id for i in out}
         for cid in self.contracts_hit(scope):
             for inv_id in _CONTRACT_BY_ID[cid].verify_invariants:
@@ -404,7 +438,8 @@ class CowboyPack:
         """
         out: dict = {}
         all_defs = (list(_ECON_INVARIANTS) + list(_CONTRACT_INVARIANTS.values())
-                    + list(_STATE_INVARIANTS) + list(_CRYPTO_INVARIANTS))
+                    + list(_STATE_INVARIANTS) + list(_CRYPTO_INVARIANTS)
+                    + list(_CBFS_INVARIANTS) + list(_CBSS_INVARIANTS))
         for inv in all_defs:
             if self.resolve_spec_ref(inv.spec_ref) is None:
                 continue
