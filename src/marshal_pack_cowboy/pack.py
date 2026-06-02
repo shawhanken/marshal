@@ -128,6 +128,16 @@ PRECEDENCE_DESCRIPTIVE = ["whitepaper", "cip", "code"]  # 实然: 代码为锚
 
 _CIP_RE = re.compile(r"^CIP-(\d+)$")
 
+# RFC2119 normative keywords, longest-first so "MUST NOT" wins over "MUST".
+_RFC2119 = [
+    ("MUST NOT", "must"), ("SHALL NOT", "must"), ("MUST", "must"),
+    ("SHALL", "must"), ("REQUIRED", "must"),
+    ("SHOULD NOT", "should"), ("SHOULD", "should"), ("RECOMMENDED", "should"),
+    ("MAY", "may"), ("OPTIONAL", "may"),
+]
+_RFC2119_RE = [(kw, level, re.compile(r"\b" + kw.replace(" ", r"\s+") + r"\b"))
+               for kw, level in _RFC2119]
+
 
 class CowboyPack:
     @property
@@ -205,6 +215,24 @@ class CowboyPack:
 
         return {"tier": tier, "reasons": reasons, "contracts_hit": contracts,
                 "review_dimensions": [d["name"] for d in self.review_plan(tier)]}
+
+    def parse_spec_requirements(self, text: str) -> list[dict]:
+        """⑤ parse_spec_requirements 种子: 从规格正文抽 RFC2119 规范性条款作为候选
+        requirement (要求级 conformance 的分母侧)。启发式、逐行扫描:每行取其中最强的
+        RFC2119 关键字 (大写才算规范性);MUST/SHALL/REQUIRED=must, SHOULD/RECOMMENDED=
+        should, MAY/OPTIONAL=may。代码块/示例里的关键字可能误抽,属已知粗粒度局限。
+        """
+        reqs = []
+        for raw in text.splitlines():
+            line = raw.strip()
+            if not line:
+                continue
+            for kw, level, rx in _RFC2119_RE:
+                if rx.search(line):
+                    reqs.append({"id": f"req-{len(reqs) + 1}", "level": level,
+                                 "keyword": kw, "text": line})
+                    break
+        return reqs
 
     def conformance_matrix(self) -> dict:
         """Spec-ref → [invariant ids] coverage (⑤ ConformanceGov 矩阵种子 / ⑦

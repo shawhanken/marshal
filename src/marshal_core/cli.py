@@ -59,6 +59,24 @@ def cmd_spec_source(a) -> int:
     return _emit({"ref": a.ref, "source": _PACK.resolve_spec_ref(a.ref)})
 
 
+def cmd_spec_requirements(a) -> int:
+    # ⑤: 解析一个 spec_ref 的正文,抽 RFC2119 候选 requirement (要求级 conformance 分母侧)。
+    import glob
+    src = _PACK.resolve_spec_ref(a.ref)
+    if src is None:
+        return _fail(f"unresolvable spec_ref: {a.ref}")
+    hits = sorted(glob.glob(os.path.join(a.spec_root, src["path_glob"])))
+    if not hits:
+        return _fail(f"spec source not found: {os.path.join(a.spec_root, src['path_glob'])}")
+    with open(hits[0], encoding="utf-8") as fh:
+        reqs = _PACK.parse_spec_requirements(fh.read())
+    levels = {"must": 0, "should": 0, "may": 0}
+    for r in reqs:
+        levels[r["level"]] += 1
+    return _emit({"ref": a.ref, "source": os.path.relpath(hits[0], a.spec_root),
+                  "counts": levels, "total": len(reqs), "requirements": reqs})
+
+
 def cmd_conformance(a) -> int:
     # ⑤ conformance 矩阵: spec → 覆盖它的不变量。可选 --spec-root 枚举全 CIP 集,
     # 算出未被任何不变量覆盖的 CIP (gap),即 §7 conformance% 的分母侧。
@@ -184,6 +202,12 @@ def build_parser() -> argparse.ArgumentParser:
     ss = sub.add_parser("spec-source")
     ss.add_argument("--ref", required=True)
     ss.set_defaults(func=cmd_spec_source)
+
+    sr = sub.add_parser("spec-requirements")
+    sr.add_argument("--ref", required=True)
+    sr.add_argument("--spec-root", dest="spec_root", required=True,
+                    help="path to the cowboy repo root containing docs/{cips,whitepaper}")
+    sr.set_defaults(func=cmd_spec_requirements)
 
     cf = sub.add_parser("conformance")
     cf.add_argument("--spec-root", dest="spec_root", default=None,
