@@ -59,6 +59,27 @@ def test_spec_source_unknown_ref_is_null():
     assert json.loads(proc.stdout)["source"] is None
 
 
+def test_conformance_per_cip_breakdown(tmp_path):
+    # Fake spec root: CIP-3 (covered by an econ invariant) with 2 MUST clauses,
+    # CIP-99 (uncovered) with 1 MUST clause.
+    cips = tmp_path / "docs" / "cips"
+    cips.mkdir(parents=True)
+    (cips / "cip-3-fee-model.md").write_text(
+        "Fees MUST be burned.\nTips MUST be paid to proposers.\nprose only.\n")
+    (cips / "cip-99-unknown.md").write_text("A node MUST do nothing.\n")
+    proc = _run(["conformance", "--spec-root", str(tmp_path)])
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    assert out["cip_total"] == 2
+    assert out["cip_covered"] == 1            # CIP-3 cited by econ.fee_conservation
+    assert out["cip_uncovered"] == ["CIP-99"]
+    by = {c["cip"]: c for c in out["per_cip"]}
+    assert by["CIP-3"]["must_requirements"] == 2 and by["CIP-3"]["covered"] is True
+    assert by["CIP-99"]["must_requirements"] == 1 and by["CIP-99"]["covered"] is False
+    # biggest gap (uncovered with most MUSTs) sorts first
+    assert out["per_cip"][0]["cip"] == "CIP-99"
+
+
 def test_ratchet_open_then_close(tmp_path):
     db = {"MARSHAL_DB": f"sqlite:///{tmp_path/'t.db'}"}
     op = _run(["ratchet-open", "--desc", "bare 2**10000 逃逸",

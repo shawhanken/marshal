@@ -86,18 +86,29 @@ def cmd_conformance(a) -> int:
         import glob
         import re as _re
         cip_dir = os.path.join(a.spec_root, "docs", "cips")
-        all_cips = set()
+        per_cip = []
         for f in glob.glob(os.path.join(cip_dir, "cip-*.md")):
             m = _re.match(r"cip-(\d+)-", os.path.basename(f))
-            if m:
-                all_cips.add(f"CIP-{int(m.group(1))}")
-        covered_cips = {k for k in matrix if k.startswith("CIP-")}
+            if not m:
+                continue
+            ref = f"CIP-{int(m.group(1))}"
+            with open(f, encoding="utf-8") as fh:
+                musts = sum(1 for r in _PACK.parse_spec_requirements(fh.read())
+                            if r["level"] == "must")
+            per_cip.append({"cip": ref, "must_requirements": musts,
+                            "invariants": len(matrix.get(ref, [])),
+                            "covered": ref in matrix})
+        all_cips = {c["cip"] for c in per_cip}
+        covered_cips = {c["cip"] for c in per_cip if c["covered"]}
         uncovered = sorted(all_cips - covered_cips, key=lambda s: int(s.split("-")[1]))
-        pct = round(100 * len(covered_cips & all_cips) / len(all_cips), 1) if all_cips else 0.0
+        pct = round(100 * len(covered_cips) / len(all_cips), 1) if all_cips else 0.0
+        # 排序: 欠覆盖优先 (无不变量在前, 然后 MUST 越多越靠前) —— 即最该补的网眼。
+        per_cip.sort(key=lambda c: (c["invariants"] > 0, -c["must_requirements"]))
         out["cip_total"] = len(all_cips)
-        out["cip_covered"] = len(covered_cips & all_cips)
+        out["cip_covered"] = len(covered_cips)
         out["cip_uncovered"] = uncovered
         out["cip_conformance_pct"] = pct
+        out["per_cip"] = per_cip
     return _emit(out)
 
 
