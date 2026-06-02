@@ -134,6 +134,38 @@ _CRYPTO_INVARIANTS = [
 ]
 
 
+# 安全信任边 / 危险点 (架构: 否定性·对抗性属性,不可往返化)。
+# 教训源 = almanax 在 node #470 标出的 Critical:`cbss_encrypt_secret` 把 wrap key
+# 派生成 `pairing(H1(aad), mpk_g2)`,无 per-message 随机数,而 `mpk_g2` 经 RPC
+# (`/cbss/account-release-key/...`) 公开 —— 任何观察者可复算 wrap key 解密,机密性破裂。
+# 关键认知:机密性 / IND-CPA 是**否定性属性**("除持密钥者外无人能恢复明文")。
+# 功能往返不变量 `crypto.cbss_ibe_roundtrip`(decrypt(encrypt(m))==m)在脆弱构造上
+# 照样为绿,结构上表达不了它。所以棘轮**不能**用一条 roundtrip proptest 来"补"这类洞;
+# 它只能作为 review lens 的危险点暴露 (invariant_able=False)。同时它需要跨 crate 的
+# 信任模型知识 (mpk 经 RPC 公开),不在 diff 内 —— 故显式建模成一条 trust 边。
+@dataclass
+class SecurityHazard:
+    id: str
+    when_paths: tuple[str, ...]      # 命中这些 diff 前缀即触发
+    title: str
+    prompt: str                       # 喂给 security review lens 的对抗式提示
+    invariant_able: bool              # False => 不可固化为往返不变量,只能 review 裁定
+
+
+SECURITY_HAZARDS = [
+    SecurityHazard(
+        id="cbss-mpk-rpc-exposure",
+        when_paths=("cbss-crypto/", "cowboy-py/", "cbss/"),
+        title="confidentiality of key derivation against a publicly exposed master key",
+        prompt=("默认怀疑机密性而非功能性。CBSS master public key (mpk_g2) 经 RPC 公开 "
+                "(/cbss/account-release-key/...)。检查任何 DEK / wrap-key 派生是否只用了"
+                "公开量且无 per-message 随机数 —— 若是,任何观察者可复算密钥解密,机密性"
+                "破裂 (IND-CPA 失败)。这是否定性属性:roundtrip 不变量无法表达,必须在此 "
+                "review 中裁定 (参 node #470 almanax Critical)。"),
+        invariant_able=False),
+]
+
+
 # 分层规格体系 (架构 §4.5): 白皮书=宪法, CIP=修正案. 源在 cowboy 仓库.
 # 权威源 (用户确认): https://github.com/cowboyinc/cowboy/tree/main/docs/{cips,whitepaper}
 SPEC_LAYERS = [
@@ -220,6 +252,8 @@ class CowboyPack:
             reasons.append("high-risk path (execution/storage/chain consensus)")
         if any(s in p for p in paths for s in _HIGH_SUBSTR):
             reasons.append("crypto / *_root computation")
+        for hz in self.security_hazards(scope):
+            reasons.append(f"security-hazard:{hz['id']} (review-only)")
         if any(t in text for t in _SYS_ADDR_TOKENS):
             reasons.append("system actor address logic")
         if any(lbl in ("cip:new", "cip:interface-change")
@@ -236,7 +270,42 @@ class CowboyPack:
             reasons.append("default mid (ordinary actor / RPC handler)")
 
         return {"tier": tier, "reasons": reasons, "contracts_hit": contracts,
+                "security_hazards": self.security_hazards(scope),
                 "review_dimensions": [d["name"] for d in self.review_plan(tier)]}
+
+    def security_hazards(self, scope: dict) -> list[dict]:
+        """否定性/对抗性安全危险点 (信任边)。命中即附一条 review lens 提示。
+
+        与不变量分开:`invariant_able=False` 的危险点**不可**用功能往返 proptest 固化
+        (机密性/IND-CPA 这类在脆弱构造上 roundtrip 照样为绿),只能由 security review
+        裁定。skill 应把这些 prompt 注入对抗 review,且棘轮遇到这类根因不得 spawn
+        roundtrip 不变量 (见 ratchet_guidance)。"""
+        paths = scope.get("diff_paths", [])
+        out = []
+        for hz in SECURITY_HAZARDS:
+            if any(p.startswith(hz.when_paths) for p in paths):
+                out.append({"id": hz.id, "title": hz.title, "prompt": hz.prompt,
+                            "invariant_able": hz.invariant_able})
+        return out
+
+    def ratchet_guidance(self, root_cause_class: str) -> dict:
+        """棘轮形状守门:否定性属性 (机密性/保密/IND-CPA/泄露/越权) 不可往返化。
+
+        遇到这些根因,spawn 一条功能 roundtrip proptest 会造出"绿着却漏"的假覆盖
+        (正是 node #470 的教训:crypto.cbss_ibe_roundtrip 漏掉了 confidentiality break)。
+        返回 invariant_able=False 时,permanent guard 应是一条 review-lens 危险点
+        (SecurityHazard),而非 proptest。"""
+        rc = (root_cause_class or "").lower()
+        negative = ("confidential", "secrecy", "ind-cpa", "ind_cpa", "leak",
+                    "exposure", "disclos", "auth", "privilege", "side-channel",
+                    "side_channel")
+        if any(k in rc for k in negative):
+            return {"invariant_able": False, "preferred_shape": "review-hazard",
+                    "reason": ("negative/adversarial property — a functional roundtrip "
+                               "proptest is green on the vulnerable construction; spawn a "
+                               "review-lens SecurityHazard, not a roundtrip invariant.")}
+        return {"invariant_able": True, "preferred_shape": "proptest",
+                "reason": "functional/safety property — a property test can express it."}
 
     def parse_spec_requirements(self, text: str) -> list[dict]:
         """⑤ parse_spec_requirements 种子: 从规格正文抽 RFC2119 规范性条款作为候选

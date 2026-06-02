@@ -33,6 +33,8 @@ description: Use when reviewing a change before merge — runs the Marshal quali
 2. 对每个 repo 调 `cli classify` → tier/reasons/contracts_hit/review_dimensions。
 3. 调 `cli invariants` → 在对应 repo 跑每条 `run_command`;契约不变量去其 `location_repo` 跑。
 4. 按 `review_dimensions` 调 `/code-review ultra`(高危全视角)做对抗式 review,默认怀疑。
+   若 classify 返回 `security_hazards`(否定性属性,如机密性),把每条 `prompt` 注入
+   security lens —— 这类洞**不变量门禁抓不到**(往返测试在脆弱构造上为绿),只能靠 review。
 5. 汇总 `GateDecision`:任一不变量 fail→block;高危+确认高severity发现→needs_human;跑不起来/超预算→needs_human+degraded;否则 pass。
 6. `cli gate-record` 落库;有 PR# 且用户要 → 贴 PR 评论;终端打印摘要。
 7. 若在已合并代码上确认高severity发现 → 提议转流 C。
@@ -48,7 +50,9 @@ description: Use when reviewing a change before merge — runs the Marshal quali
 
 详见 `references/ratchet-flow.md`。步骤摘要:
 1. `cli ratchet-open --escape-id <新id> --desc "<bug>" --root-cause <你的分类> [--change-ref <sha>]`。
-2. 起草:根因分类 + 候选永久检查(指向某 repo 的 proptest 名 + 路径 + run_command)。
+2. **先定形状**:否定性属性(机密性/越权/泄露)不可往返化 —— spawned_check 记 `hazard:<id>`
+   走 review-lens,不要 spawn 功能 roundtrip proptest(会"绿着却漏",见 ratchet-flow.md 步骤 2)。
+   否则起草候选永久检查(指向某 repo 的 proptest 名 + 路径 + run_command)。
 3. 把草稿摆给用户,等其确认根因 + 选定检查。
 4. `cli ratchet-close --escape-id <id> --spawned-check <inv-id> --inv-json '<InvariantDef字段>'`。
    (spawned_check 为空 CLI 会拒绝 — 这是棘轮纪律,不要绕过。)
