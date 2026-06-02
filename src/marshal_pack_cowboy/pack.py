@@ -114,6 +114,26 @@ _STATE_INVARIANTS = [
 ]
 
 
+# CBSS IBE crypto invariant family — harvested from the knowledge core into the
+# version-controlled pack (架构 §4.6(4) DB⇄包晋升回路). Grown via the Marshal
+# ratchet (escape cbss-crypto-no-invariant) while reviewing the cowboy-crypto SDK
+# packaging PR (node #470): the cbss-crypto crate had zero invariant coverage —
+# only a single fixed-vector golden test. Surfaced when a change touches the
+# crypto crate or its Python bindings (_CRYPTO_PREFIXES).
+# NOTE: the proptest lives in `mod tests`, so location_test is fully-qualified
+# (`tests::…`) and run_command keeps `-- --exact` (a bare name would filter to 0).
+_CRYPTO_PREFIXES = ("cbss-crypto/", "cowboy-py/")
+
+_CRYPTO_INVARIANTS = [
+    InvariantDef(id="crypto.cbss_ibe_roundtrip", domain="crypto", spec_ref="CIP-24",
+                 executor_kind="proptest", location_repo="node",
+                 location_path="cbss-crypto/src/lib.rs",
+                 location_test="tests::prop_cbss_ibe_roundtrip", severity="high",
+                 run_command=["cargo", "test", "-p", "cbss-crypto",
+                              "tests::prop_cbss_ibe_roundtrip", "--", "--exact"]),
+]
+
+
 # 分层规格体系 (架构 §4.5): 白皮书=宪法, CIP=修正案. 源在 cowboy 仓库.
 # 权威源 (用户确认): https://github.com/cowboyinc/cowboy/tree/main/docs/{cips,whitepaper}
 SPEC_LAYERS = [
@@ -173,6 +193,8 @@ class CowboyPack:
             out.extend(_ECON_INVARIANTS)
             if any(p.startswith(_STATE_PREFIXES) for p in scope.get("diff_paths", [])):
                 out.extend(_STATE_INVARIANTS)
+            if any(p.startswith(_CRYPTO_PREFIXES) for p in scope.get("diff_paths", [])):
+                out.extend(_CRYPTO_INVARIANTS)
         seen = {i.id for i in out}
         for cid in self.contracts_hit(scope):
             for inv_id in _CONTRACT_BY_ID[cid].verify_invariants:
@@ -241,7 +263,7 @@ class CowboyPack:
         """
         out: dict = {}
         all_defs = (list(_ECON_INVARIANTS) + list(_CONTRACT_INVARIANTS.values())
-                    + list(_STATE_INVARIANTS))
+                    + list(_STATE_INVARIANTS) + list(_CRYPTO_INVARIANTS))
         for inv in all_defs:
             if self.resolve_spec_ref(inv.spec_ref) is None:
                 continue
