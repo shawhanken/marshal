@@ -13,7 +13,7 @@ from sqlalchemy.orm import sessionmaker
 
 from marshal_core.knowledge.models import Base
 from marshal_core.knowledge.store import Store
-from marshal_core.review import aggregate_review
+from marshal_core.review import aggregate_review, verify_findings
 from marshal_pack_cowboy.pack import CowboyPack
 
 _PACK = CowboyPack()
@@ -58,6 +58,11 @@ def cmd_classify(a) -> int:
 def cmd_review_quorum(a) -> int:
     # ③ 把多视角 review 发现聚合成 quorum 结论 (去重/计票/高危升 needs_human)。
     return _emit(aggregate_review(json.loads(a.findings_json), quorum=a.quorum))
+
+
+def cmd_review_verify(a) -> int:
+    # ③ 对抗式验证二段: 按 skeptic 投票裁决每条发现 (default-to-refute)。
+    return _emit(verify_findings(json.loads(a.votes_json)))
 
 
 def cmd_spec_source(a) -> int:
@@ -220,6 +225,10 @@ def build_parser() -> argparse.ArgumentParser:
     rq.add_argument("--findings-json", dest="findings_json", required=True)
     rq.add_argument("--quorum", type=int, default=2)
     rq.set_defaults(func=cmd_review_quorum)
+
+    rv = sub.add_parser("review-verify")
+    rv.add_argument("--votes-json", dest="votes_json", required=True)
+    rv.set_defaults(func=cmd_review_verify)
 
     ss = sub.add_parser("spec-source")
     ss.add_argument("--ref", required=True)

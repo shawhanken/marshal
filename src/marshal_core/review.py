@@ -56,3 +56,30 @@ def aggregate_review(findings: list[dict], quorum: int = 2) -> dict:
     verdict = "needs_human" if needs_human else "pass"
     return {"groups": out_groups, "needs_human": needs_human,
             "confirmed": confirmed, "dropped": dropped, "review_verdict": verdict}
+
+
+def verify_findings(items: list[dict]) -> dict:
+    """③ 对抗式验证二段: 对每条发现的 N 个 skeptic 投票裁决 (default-to-refute)。
+
+    每条 item: {key, severity, votes:[{refuted: bool, reason?}]}. skeptic 默认 refute,
+    只有确凿证明发现为真才 uphold。**仅当严格多数 uphold 才存活**(平票/多数 refute →
+    杀,把似是而非的误报砍掉);无投票 → unverified(degraded,保留待人看)。
+    verdict: 有存活的高危 → needs_human;否则 pass。
+    """
+    survived, killed, unverified = [], [], []
+    for it in items:
+        votes = it.get("votes", []) or []
+        total = len(votes)
+        refutes = sum(1 for v in votes if v.get("refuted"))
+        upholds = total - refutes
+        row = {"key": it.get("key"), "severity": it.get("severity", "low"),
+               "upholds": upholds, "refutes": refutes, "total": total}
+        if total == 0:
+            unverified.append(row)
+        elif upholds * 2 > total:          # 严格多数 uphold 才存活
+            survived.append(row)
+        else:                              # 平票或多数 refute → 杀
+            killed.append(row)
+    verdict = "needs_human" if any(r["severity"] == "high" for r in survived) else "pass"
+    return {"survived": survived, "killed": killed, "unverified": unverified,
+            "verdict": verdict}

@@ -24,6 +24,11 @@
    "$PY" -m marshal_core.cli review-quorum --findings-json '<findings>' [--quorum 2]
    ```
    → `{groups, needs_human, confirmed, dropped, review_verdict}`。规则:同 key(file:line:dimension)按**不同视角数**计票;达 quorum→confirmed;**任一高危→needs_human(终审归人,哪怕单视角)**;孤立低危→当噪声丢弃。
-3. `review_verdict` 汇入流 A 第 5 步的 GateDecision;`needs_human` 列表是要人看的高危发现。
-4. 也可叠加 `/code-review ultra`(云端多 agent)作为额外一路视角喂进同一聚合;它需人触发/计费,**skill 自己拉不起**——拉不到就少一路并**显式标 degraded**,绝不假装跑过。
-- 如高 severity 发现落在**已合并代码**,提议转流 C(棘轮)。
+3. **对抗式验证二段(抬高误报地板)**:对 quorum 后存活的每条发现(`confirmed` + `needs_human`),再派 N 个 skeptic subagent,prompt 为「**默认 refute,除非有确凿证据证明该发现为真**」,各返回 `{key, refuted:bool, reason}`。汇成投票过:
+   ```
+   "$PY" -m marshal_core.cli review-verify --votes-json '[{"key":...,"severity":...,"votes":[{"refuted":true},...]}]'
+   ```
+   → `{survived, killed, unverified, verdict}`。规则:**仅严格多数 uphold 才存活**;平票/多数 refute → 杀(似是而非的误报被砍);无投票 → unverified(degraded,保留待人看)。
+4. 最终汇入流 A 第 5 步:用 `review-verify` 的 `verdict` 与 `survived`(`killed` 不再上报,但**误报回流改进对应视角 prompt**,误报≠逃逸不进棘轮)。
+5. 也可叠加 `/code-review ultra`(云端多 agent)作为额外一路视角喂进 quorum;它需人触发/计费,**skill 自己拉不起**——拉不到就少一路并**显式标 degraded**,绝不假装跑过。
+- 如存活的高 severity 发现落在**已合并代码**,提议转流 C(棘轮)。
