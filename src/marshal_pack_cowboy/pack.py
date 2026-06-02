@@ -206,6 +206,20 @@ class CowboyPack:
         return {"tier": tier, "reasons": reasons, "contracts_hit": contracts,
                 "review_dimensions": [d["name"] for d in self.review_plan(tier)]}
 
+    def conformance_matrix(self) -> dict:
+        """Spec-ref → [invariant ids] coverage (⑤ ConformanceGov 矩阵种子 / ⑦
+        conformance%). 只计 spec_ref 能解析到真实规格源的不变量;不可解析的标签
+        (内部 tag) 不计入,以免虚报覆盖。调用方可拿全 CIP 集与之做差得未覆盖项。
+        """
+        out: dict = {}
+        all_defs = (list(_ECON_INVARIANTS) + list(_CONTRACT_INVARIANTS.values())
+                    + list(_STATE_INVARIANTS))
+        for inv in all_defs:
+            if self.resolve_spec_ref(inv.spec_ref) is None:
+                continue
+            out.setdefault(inv.spec_ref, []).append(inv.id)
+        return out
+
     def review_plan(self, tier: str) -> list[dict]:
         n = {"high": 6, "mid": 3, "low": 1}.get(tier, 3)
         return REVIEW_DIMENSIONS[:n]

@@ -59,6 +59,30 @@ def cmd_spec_source(a) -> int:
     return _emit({"ref": a.ref, "source": _PACK.resolve_spec_ref(a.ref)})
 
 
+def cmd_conformance(a) -> int:
+    # ⑤ conformance 矩阵: spec → 覆盖它的不变量。可选 --spec-root 枚举全 CIP 集,
+    # 算出未被任何不变量覆盖的 CIP (gap),即 §7 conformance% 的分母侧。
+    matrix = _PACK.conformance_matrix()
+    out = {"covered": matrix, "specs_covered": sorted(matrix)}
+    if a.spec_root:
+        import glob
+        import re as _re
+        cip_dir = os.path.join(a.spec_root, "docs", "cips")
+        all_cips = set()
+        for f in glob.glob(os.path.join(cip_dir, "cip-*.md")):
+            m = _re.match(r"cip-(\d+)-", os.path.basename(f))
+            if m:
+                all_cips.add(f"CIP-{int(m.group(1))}")
+        covered_cips = {k for k in matrix if k.startswith("CIP-")}
+        uncovered = sorted(all_cips - covered_cips, key=lambda s: int(s.split("-")[1]))
+        pct = round(100 * len(covered_cips & all_cips) / len(all_cips), 1) if all_cips else 0.0
+        out["cip_total"] = len(all_cips)
+        out["cip_covered"] = len(covered_cips & all_cips)
+        out["cip_uncovered"] = uncovered
+        out["cip_conformance_pct"] = pct
+    return _emit(out)
+
+
 def cmd_invariants(a) -> int:
     scope = {"repo": a.repo, "diff_paths": a.paths}
     invs = _PACK.list_invariants(scope)
@@ -160,6 +184,11 @@ def build_parser() -> argparse.ArgumentParser:
     ss = sub.add_parser("spec-source")
     ss.add_argument("--ref", required=True)
     ss.set_defaults(func=cmd_spec_source)
+
+    cf = sub.add_parser("conformance")
+    cf.add_argument("--spec-root", dest="spec_root", default=None,
+                    help="path to the cowboy repo root; enables CIP gap/percent reporting")
+    cf.set_defaults(func=cmd_conformance)
 
     ro = sub.add_parser("ratchet-open")
     ro.add_argument("--escape-id", dest="escape_id", required=True)
