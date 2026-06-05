@@ -20,7 +20,11 @@ description: Use when reviewing a change before merge — runs the Marshal quali
 ## 路由
 
 - `/marshal`            → 流 A,diff = 当前分支 vs base
-- `/marshal <PR#>`      → 流 A,diff = `gh pr diff <PR#>`,change_ref = PR head SHA
+- `/marshal <PR#>`      → 流 A,**默认 repo = node**,diff = `gh pr diff <PR#> -R cowboyinc/node`
+- `/marshal <repo> <PR#>` / `/marshal <repo>#<PR#>` / `/marshal <PR-URL>` → 流 A,审**指定 repo** 的 PR。
+  - `<repo>` 取 `runner|cbss|cbfs|wallet|cowboy-ras|node` 等;解析成 `cowboyinc/<repo>`(URL 直接含 owner/repo)。
+  - 所有 `gh` 调用都带 `-R cowboyinc/<repo>`(`gh pr diff <PR#> -R …`、`gh pr view <PR#> -R … --json headRefOid`),且 `cli classify/invariants --repo <repo>` 用同一个 `<repo>`。
+  - 例:`/marshal runner 42`、`/marshal runner#42`、`/marshal https://github.com/cowboyinc/runner/pull/42` 三者等价。
 - `/marshal ratchet "<bug>"` → 流 C
 - `/marshal conformance` → ⑤ 规格符合度报告(见 `references/conformance-flow.md`)
 - `/marshal metrics` → ⑦ 度量报告:`cli metrics`(不变量数/棘轮增量/逃逸开关/门禁判决分布);conformance% 另跑 `/marshal conformance`。诚实呈现 `unavailable` 指标,不补造数

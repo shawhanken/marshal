@@ -2,8 +2,11 @@
 
 ## 取 diff
 - 无参:`base=$(git merge-base HEAD origin/main 2>/dev/null || git merge-base HEAD origin/devnet)`;`git diff --name-only $base...HEAD` 取改动路径;`git diff $base...HEAD` 取 diff_text。
-- `<PR#>`:`gh pr diff <PR#> --name-only` 取路径;`gh pr view <PR#> --json headRefOid -q .headRefOid` 取 change_ref。
-- 多 repo:diff 可能跨多个 git 顶层目录;按 repo 分组,各自走分级+不变量。
+- `<PR#>`:**先定 repo**。`/marshal <PR#>` 默认 `R=cowboyinc/node`;`/marshal <repo> <PR#>` / `<repo>#<PR#>` / PR-URL 则 `R=cowboyinc/<repo>`(URL 自带 owner/repo)。
+  - `gh pr diff <PR#> -R $R --name-only` 取路径;`gh pr diff <PR#> -R $R` 取 diff_text;`gh pr view <PR#> -R $R --json headRefOid -q .headRefOid` 取 change_ref。
+  - `cli classify/invariants --repo <repo>` 的 `<repo>` 必须与 `$R` 一致(用裸名 runner/cbss/cbfs/node…,不带 owner)。
+  - **不能靠 cwd**:`gh` 无 `-R` 时按当前目录 remote 解析,会误落到 node。务必显式 `-R`。
+- 多 repo:本地分支 diff 可能跨多个 git 顶层目录;按 repo 分组,各自走分级+不变量(PR 模式则单 repo,由 `$R` 决定)。
 
 ## 调 CLI
 - `"$PY" -m marshal_core.cli classify --repo <r> --paths <p1> <p2> --diff-text "<截断的diff>" --labels <l1>`
