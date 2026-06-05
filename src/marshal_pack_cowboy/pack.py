@@ -69,6 +69,19 @@ _ECON_INVARIANTS = [
                  location_path="execution/src/econ_invariants.rs",
                  location_test="econ_invariants::econ_tx_fee_conservation", severity="high",
                  run_command=["cargo", "test", "-p", "cowboy-execution", "econ_invariants::econ_tx_fee_conservation", "--", "--exact"]),
+    # Ratchet esc-20260605-timer-burn (escaped bug surfaced+fixed by node #580):
+    # a duplicate refund block double-credited the timer fee-payer (silent mint)
+    # and the burn was accumulated after take_block_fees() drained it, so it never
+    # reached the Address::ZERO sink. Conservation: for a timer-firing block,
+    # tokens debited from fee-payers == tokens credited to Address::ZERO.
+    # Lives in the storage crate as a module-nested #[test] sweep (NOT a proptest!
+    # macro), so executor_kind="test" and run_command uses a substring filter
+    # (NOT `-- --exact`), matching the _STATE family convention for this file.
+    InvariantDef(id="econ.timer_burn_conservation", domain="econ", spec_ref="CIP-3",
+                 executor_kind="test", location_repo="node",
+                 location_path="storage/src/state_invariants.rs",
+                 location_test="state_invariants::tests::prop_timer_burn_conservation", severity="high",
+                 run_command=["cargo", "test", "-p", "cowboy-storage", "prop_timer_burn_conservation"]),
 ]
 
 

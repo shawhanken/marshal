@@ -11,7 +11,16 @@ def test_handle_event_returns_invariant_job_and_seeds_registry(db_session):
                          diff_paths=["execution/src/execution/transaction.rs"])
     job = orch.handle_event(ev)
     assert job.kind == "invariant"
-    assert len(store.list_invariants("cowboy", "node")) == 4
+    # The always-on node econ family: 4 fee/settlement/escrow proptests plus the
+    # ratchet-grown econ.timer_burn_conservation (esc-20260605-timer-burn).
+    seeded = {i.id for i in store.list_invariants("cowboy", "node")}
+    assert seeded == {
+        "econ.fee_conservation",
+        "econ.settlement_sum_100",
+        "econ.escrow_non_negative",
+        "econ.tx_fee_conservation",
+        "econ.timer_burn_conservation",
+    }
 
 
 def test_handle_result_records_gate_run(db_session):
