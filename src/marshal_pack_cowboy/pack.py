@@ -64,6 +64,11 @@ _ECON_INVARIANTS = [
                  location_path="execution/src/econ_invariants.rs",
                  location_test="econ_invariants::econ_escrow_non_negative", severity="high",
                  run_command=["cargo", "test", "-p", "cowboy-execution", "econ_invariants::econ_escrow_non_negative", "--", "--exact"]),
+    InvariantDef(id="econ.tx_fee_conservation", domain="econ", spec_ref="CIP-3",
+                 executor_kind="proptest", location_repo="node",
+                 location_path="execution/src/econ_invariants.rs",
+                 location_test="econ_invariants::econ_tx_fee_conservation", severity="high",
+                 run_command=["cargo", "test", "-p", "cowboy-execution", "econ_invariants::econ_tx_fee_conservation", "--", "--exact"]),
 ]
 
 

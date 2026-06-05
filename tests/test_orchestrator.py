@@ -11,7 +11,7 @@ def test_handle_event_returns_invariant_job_and_seeds_registry(db_session):
                          diff_paths=["execution/src/execution/transaction.rs"])
     job = orch.handle_event(ev)
     assert job.kind == "invariant"
-    assert len(store.list_invariants("cowboy", "node")) == 3
+    assert len(store.list_invariants("cowboy", "node")) == 4
 
 
 def test_handle_result_records_gate_run(db_session):
