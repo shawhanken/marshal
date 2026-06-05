@@ -35,7 +35,7 @@ description: Use when reviewing a change before merge — runs the Marshal quali
 详见 `references/gate-flow.md`。步骤摘要:
 1. 取 diff,用 `git rev-parse --show-toplevel` 判定所在 repo(可能多个)。
 2. 对每个 repo 调 `cli classify` → tier/reasons/contracts_hit/review_dimensions。
-3. 调 `cli invariants` → 在对应 repo 跑每条 `run_command`;契约不变量去其 `location_repo` 跑。
+3. 调 `cli invariants` → **在被审 checkout 的干净 worktree 跑每条 `run_command`**(PR 模式 = PR head SHA;无参 = 当前 HEAD;契约不变量去其 `location_repo` 的 tip)。**绝不在落后的主工作树跑** —— 会 `running 0 tests` 假阳性 degraded(详见 gate-flow.md「跑不变量」)。
 4. 按 `review_dimensions` 调 `/code-review ultra`(高危全视角)做对抗式 review,默认怀疑。
    若 classify 返回 `security_hazards`(否定性属性,如机密性),把每条 `prompt` 注入
    security lens —— 这类洞**不变量门禁抓不到**(往返测试在脆弱构造上为绿),只能靠 review。
