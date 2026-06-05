@@ -27,6 +27,7 @@ def test_invariants_carry_run_command():
     by_id = {i.id: i for i in invs}
     cmd = by_id["econ.fee_conservation"].run_command
     assert cmd[:3] == ["cargo", "test", "-p"]
-    # Module-qualified so `cargo test ... --exact` actually matches the test
-    # (it lives in mod econ_invariants). Bare name matches nothing under --exact.
-    assert "econ_invariants::prop_fee_conservation" in cmd
+    # Real, verified test name on node devnet is econ_fee_conservation (NOT
+    # prop_*); module-qualified so `cargo test ... --exact` actually matches it.
+    # (An earlier phantom `prop_fee_conservation` silently matched 0 tests.)
+    assert "econ_invariants::econ_fee_conservation" in cmd

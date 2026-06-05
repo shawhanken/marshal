@@ -11,8 +11,10 @@
 
 ## 跑不变量
 对 `invariants` 返回的每条:`cd <workspace>/<inv.location_repo>` 然后跑 `inv.run_command`。
-- 测试不存在(契约不变量本体可能未实现)→ 该不变量记 degraded,提示"契约缺验证,建议用 /marshal ratchet 补",**不当作 pass**。
-- 跑失败 → 该门禁 outcome=fail。
+- **退出 0 ≠ pass**。先看实际跑了几个测试:cargo 输出含 `running 0 tests` 或 `0 passed; …; N filtered out`(N>0)→ **该不变量记 degraded,绝不算 pass**。这是 `--exact` + 错误测试名/模块路径的静默假报陷阱:名字不匹配时 `cargo test … -- --exact` 退出 0 且"running 0 tests",naive 读 exit code 会把"没跑"当"审过"。必须确认 `test result: ok. ≥1 passed` 才算真 pass。
+- 测试不存在 / 包名或模块路径不符(契约不变量本体可能未实现)→ 同上记 degraded,提示"检查缺失或引用过时,建议用 /marshal ratchet 补或修正 pack 引用",**不当作 pass**。
+- 真正跑了且失败(`test result: FAILED`)→ 该门禁 outcome=fail。
+- 教训:pack 注册的 run_command 必须指向**真实存在、已验证能命中**的测试(正确包名 + 全模块路径);注册前先在目标 repo 实跑确认 `≥1 passed`。
 
 ## 汇总 GateDecision(verdict 优先级 block > needs_human > pass)
 - 任一 active 不变量 fail → block

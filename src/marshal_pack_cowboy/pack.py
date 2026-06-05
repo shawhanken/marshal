@@ -52,18 +52,18 @@ _ECON_INVARIANTS = [
     InvariantDef(id="econ.fee_conservation", domain="econ", spec_ref="CIP-3",
                  executor_kind="proptest", location_repo="node",
                  location_path="execution/src/econ_invariants.rs",
-                 location_test="econ_invariants::prop_fee_conservation", severity="high",
-                 run_command=["cargo", "test", "-p", "cowboy-execution", "econ_invariants::prop_fee_conservation", "--", "--exact"]),
+                 location_test="econ_invariants::econ_fee_conservation", severity="high",
+                 run_command=["cargo", "test", "-p", "cowboy-execution", "econ_invariants::econ_fee_conservation", "--", "--exact"]),
     InvariantDef(id="econ.settlement_sum_100", domain="econ", spec_ref="CIP-2",
                  executor_kind="proptest", location_repo="node",
                  location_path="execution/src/econ_invariants.rs",
-                 location_test="econ_invariants::prop_settlement_sum_100", severity="high",
-                 run_command=["cargo", "test", "-p", "cowboy-execution", "econ_invariants::prop_settlement_sum_100", "--", "--exact"]),
+                 location_test="econ_invariants::econ_settlement_sum_100", severity="high",
+                 run_command=["cargo", "test", "-p", "cowboy-execution", "econ_invariants::econ_settlement_sum_100", "--", "--exact"]),
     InvariantDef(id="econ.escrow_non_negative", domain="econ", spec_ref="CIP-2",
                  executor_kind="proptest", location_repo="node",
                  location_path="execution/src/econ_invariants.rs",
-                 location_test="econ_invariants::prop_escrow_non_negative", severity="high",
-                 run_command=["cargo", "test", "-p", "cowboy-execution", "econ_invariants::prop_escrow_non_negative", "--", "--exact"]),
+                 location_test="econ_invariants::econ_escrow_non_negative", severity="high",
+                 run_command=["cargo", "test", "-p", "cowboy-execution", "econ_invariants::econ_escrow_non_negative", "--", "--exact"]),
 ]
 
 
@@ -110,16 +110,19 @@ _CONTRACT_INVARIANTS = {
     "contract.tx_encoding_roundtrip": InvariantDef(
         id="contract.tx_encoding_roundtrip", domain="cross-repo", spec_ref="WP",
         executor_kind="conformance-vector", location_repo="node",
-        location_path="types/src/execution.rs", location_test="tx_encoding_golden_vectors",
+        location_path="types/src/execution.rs",
+        location_test="execution::tests::test_transaction_codec_roundtrip",
         severity="high",
-        run_command=["cargo", "test", "-p", "cowboy-types", "tx_encoding_golden_vectors",
-                     "--", "--exact"]),
+        run_command=["cargo", "test", "-p", "cowboy-types",
+                     "execution::tests::test_transaction_codec_roundtrip", "--", "--exact"]),
     "contract.runner_types_serde": InvariantDef(
         id="contract.runner_types_serde", domain="cross-repo", spec_ref="CIP-2",
         executor_kind="conformance-vector", location_repo="node",
-        location_path="runner/src/types.rs", location_test="runner_types_serde_compat",
+        location_path="runner/src/types.rs",
+        location_test="types::tests::spec_c1_7_runner_result_signature_serde_roundtrip",
         severity="high",
-        run_command=["cargo", "test", "-p", "cowboy-node-runner", "runner_types_serde_compat",
+        run_command=["cargo", "test", "-p", "cowboy-runner",
+                     "types::tests::spec_c1_7_runner_result_signature_serde_roundtrip",
                      "--", "--exact"]),
     # 真实锚点: node/ras/src/test_vectors.rs 的锁定金标准哈希向量 (已验证存在且绿)。
     # 顶层 #[test] (mod test_vectors), 用子串过滤, 不加 --exact。
@@ -180,17 +183,21 @@ _STATE_INVARIANTS = [
 # packaging PR (node #470): the cbss-crypto crate had zero invariant coverage —
 # only a single fixed-vector golden test. Surfaced when a change touches the
 # crypto crate or its Python bindings (_CRYPTO_PREFIXES).
-# NOTE: the proptest lives in `mod tests`, so location_test is fully-qualified
-# (`tests::…`) and run_command keeps `-- --exact` (a bare name would filter to 0).
+# NOTE: the IBE round-trip test lives in the **cbss repo** (crates/cbss-crypto),
+# NOT node — the node-packaged cbss-crypto crate (PR #470) was never merged to
+# node devnet, so the earlier node-pointing reference was a phantom. Real,
+# verified anchor: cbss `ibe::tests::ibe_round_trip_matches_bilinearity`.
+# Surfaced on either the node-packaged paths (cbss-crypto/, cowboy-py/) or the
+# cbss-repo paths (handled by _CBSS_PREFIXES / _CBSS_INVARIANTS below).
 _CRYPTO_PREFIXES = ("cbss-crypto/", "cowboy-py/")
 
 _CRYPTO_INVARIANTS = [
     InvariantDef(id="crypto.cbss_ibe_roundtrip", domain="crypto", spec_ref="CIP-24",
-                 executor_kind="proptest", location_repo="node",
-                 location_path="cbss-crypto/src/lib.rs",
-                 location_test="tests::prop_cbss_ibe_roundtrip", severity="high",
+                 executor_kind="proptest", location_repo="cbss",
+                 location_path="crates/cbss-crypto/src/ibe.rs",
+                 location_test="ibe::tests::ibe_round_trip_matches_bilinearity", severity="high",
                  run_command=["cargo", "test", "-p", "cbss-crypto",
-                              "tests::prop_cbss_ibe_roundtrip", "--", "--exact"]),
+                              "ibe::tests::ibe_round_trip_matches_bilinearity", "--", "--exact"]),
 ]
 
 
