@@ -54,9 +54,23 @@ worktree 根即该 repo 根,`run_command` 里的 `-p <crate>` / 路径都相对 
 ### 4) 清理
 跑完该 repo 的全部不变量后:`git worktree remove --force /tmp/marshal-<...>`。
 
+## 核对 Almanax 已贴 findings(PR 模式出判决前**必做**)
+
+Almanax 是独立的第三方扫描器,常在 Marshal 跑之前就把 finding 贴上了 PR。**绝不凭印象写「Almanax: 0 findings」** —— 必须实拉再断言(node #660 即栽于此:Almanax 的 HIGH 早 4 分钟已 live,Marshal 却报「skipping / 0 findings」并判干净 PASS,违反「降级不谎报」)。Marshal 自己的对抗 review 发现了同一 bug ≠ 可以无视 Almanax 的判决态;两者是互相印证,不是替代。
+
+1. **实拉**(两个端点都要,finding 可能在 review-comment 或 review body 里):
+   - `gh api repos/cowboyinc/<repo>/pulls/<PR>/comments --jq '.[] | select(.user.login=="almanax-ai[bot]")'`
+   - `gh api repos/cowboyinc/<repo>/pulls/<PR>/reviews  --jq '.[] | select(.user.login=="almanax-ai[bot]")'`
+   - severity 从 body 解析(`alt="High Severity"` / `Critical` / `Medium` / `Low`);看是否已被 `/almanax dismiss|resolve`(查后续回复或 `almanax_finding_id` 状态)。
+2. **核对**:对每条**未 dismiss/resolve** 的 Almanax finding,Marshal 必须在评论里**逐条 confirm 或 refute**(回代码一手核;refute 要给证据,别空口反驳)。
+3. **判决约束(确定性,不靠模型裁量)**:存在任一未 dismiss 的 **HIGH/CRITICAL** Almanax finding → 判决**不得是干净 PASS**,至少 needs_human(高危终审归人)。只有 Marshal 拿出一手证据 refute 掉(证明是假阳性),才能降到 pass,且评论里写明 refute 依据。
+4. 评论里「Almanax: N findings」**必须等于实拉计数**,并逐条列出 severity + 你的处置(confirmed / refuted-with-evidence / dismissed-upstream)。
+
 ## 汇总 GateDecision(verdict 优先级 block > needs_human > pass)
 - 任一 active 不变量 fail → block
 - 高危 tier + 确认的高 severity review 发现 → needs_human
+- **存在未 dismiss/refute 的 HIGH/CRITICAL Almanax finding → 至少 needs_human**(见上节;refute 须附一手证据才可降级)
+- **change 自评/升为 consensus-relevant tier,且 review 确认其声称的安全不变量仍可被绕过 → needs_human**,不得用「defense-in-depth / correctly scoped」措辞发干净 PASS(PR 可作增量合入,但判决要标注「<不变量> 仍开放」)
 - 任一步骤 degraded(CLI 错/测试缺/review 超预算)→ 至少 needs_human + 标 degraded
 - 否则 → pass
 

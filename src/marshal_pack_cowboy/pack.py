@@ -293,7 +293,11 @@ _RAS_ROUTE_INVARIANTS = [
 # test in tests/regression/simulate.rs via the `lib` test target.
 _PVM_PREFIXES = ("pvm/crates/pvm-runtime/src/simulate",
                  "pvm/crates/pvm-runtime/src/determinism",
-                 "pvm/crates/pvm-runtime/src/lib")
+                 "pvm/crates/pvm-runtime/src/lib",
+                 # reflection guard surfaces on the runtime builtins/scope path and
+                 # on the node-side deploy validator that owns validate_actor_code.
+                 "pvm/crates/vm/src/scope",
+                 "execution/src/pvm_executor")
 
 _PVM_INVARIANTS = [
     InvariantDef(id="pvm.strict_simulation_allows_valid_code", domain="determinism",
@@ -304,6 +308,28 @@ _PVM_INVARIANTS = [
                  run_command=["cargo", "test", "--manifest-path", "pvm/Cargo.toml",
                               "-p", "pvm-runtime", "--test", "lib",
                               "run_simulation_strict_allows_deterministic_code"]),
+    # (escape esc-20260610-pvm-reflection-bypass) from node PR #660 (COW-2051,
+    # WP §3 reflection block). The PR's validate_actor_code only rejects a Call
+    # whose callee is a *bare Name* eval/exec/compile. Indirect reflection —
+    # `e = eval; e(...)`, `getattr(__builtins__,"eval")(...)`, `__builtins__["exec"](...)`
+    # — reaches the unstripped runtime builtins (Scope::with_builtins injects the
+    # full vm.builtins; INT_GUARD_PREAMBLE only replaces `int`), so WP §3's
+    # reflection prohibition is still violable at runtime. Almanax flagged HIGH;
+    # Marshal independently found the same vectors but issued a clean PASS and
+    # mis-reported Almanax as 0 findings (4 min after the HIGH went live). Static
+    # AST analysis CANNOT catch the aliased/subscript forms without full scope
+    # analysis — the real fix is a runtime builtins guard (del/guard eval/exec/
+    # compile in the actor scope while routing stdlib internals through a
+    # privileged loader). pending=True: the runtime guard and this regression test
+    # are not yet written; flip to active once the guard lands.
+    InvariantDef(id="pvm.reflection_indirect_bypass_blocked", domain="determinism",
+                 spec_ref="WP-§3", executor_kind="test", location_repo="node",
+                 location_path="pvm/crates/pvm-runtime/tests/regression/reflection.rs",
+                 location_test="regression::reflection::indirect_eval_bypass_is_neutralized",
+                 severity="high", pending=True,
+                 run_command=["cargo", "test", "--manifest-path", "pvm/Cargo.toml",
+                              "-p", "pvm-runtime", "--test", "lib",
+                              "indirect_eval_bypass_is_neutralized"]),
 ]
 
 
