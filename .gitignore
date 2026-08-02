@@ -11,3 +11,4 @@ build/
 intro/
 releases/
 marshal.db
+.mcp.json

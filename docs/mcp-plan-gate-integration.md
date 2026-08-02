@@ -5,20 +5,28 @@
 
 ## 接入配置
 
-MCP client 的 `.mcp.json`(Claude Code)或等价 Codex/Opencode 配置:
+前置:`pip install -e ".[mcp]"`(装 mcp SDK)。server 走 **stdio** —— 不是常驻服务,client
+在需要时 fork 一个子进程、用完即退,**无需单独部署**。client 与 server 必须同机(tool 传的
+`concepts_dir` / `repo_roots` 路径要在 server 进程能读到的文件系统里)。
 
-```json
-{
-  "mcpServers": {
-    "marshal-plan-gate": {
-      "command": "/home/ubuntu/workspace/marshal/.venv/bin/python",
-      "args": ["-m", "marshal_core.mcp_server"]
-    }
-  }
-}
+### Claude Code —— 推荐用 `claude mcp add`(user scope,任何目录都生效)
+
+```bash
+claude mcp add -s user marshal-plan-gate \
+  /path/to/marshal/.venv/bin/python -- -m marshal_core.mcp_server
 ```
 
-前置:`pip install -e ".[mcp]"`(装 mcp SDK)。server 走 stdio。
+把 `/path/to/marshal` 换成你本机 clone 的路径。写进 `~/.claude.json`,从任何目录开
+Claude Code 都能用。验证:`claude mcp list` 应显示 `marshal-plan-gate … ✔ Connected`。
+
+> ⚠️ **别用项目根 `.mcp.json`**,除非你总是从 marshal 目录启动 Claude Code —— 它只读
+> **启动目录**的 `.mcp.json`,不会递归进子目录;且项目级 server 首次要手动 approve。
+> `claude mcp add -s user` 两个坑都没有。
+
+### Codex / Opencode
+
+配置文件名不同(Codex 是 `~/.codex/config.toml`,Opencode 是 `opencode.json` 的 `mcp` 段),
+但 command/args 一样:`<你的 marshal venv>/bin/python -m marshal_core.mcp_server`。
 
 ## 工具
 
