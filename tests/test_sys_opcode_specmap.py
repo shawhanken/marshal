@@ -11,7 +11,7 @@ The opcode analog of `system_actor_addrmap`. The address side reconciles the WP
 
 run_command:
     /home/ubuntu/workspace/marshal/.venv/bin/python -m pytest \
-        marshal_core/checks/test_sys_opcode_specmap.py -q
+        tests/test_sys_opcode_specmap.py -q
 
 Status: the deployed-side collision gate is hard (the codec is the wire-format
 source of truth and must never double-allocate an opcode — the recurring class

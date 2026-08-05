@@ -2,7 +2,7 @@
 
 run_command (registered in the invariant pack):
     /home/ubuntu/workspace/marshal/.venv/bin/python -m pytest \
-        marshal_core/checks/test_system_actor_addrmap.py -q
+        tests/test_system_actor_addrmap.py -q
 
 Status — node #585 moved CIP-7 STREAM_KEY_MANAGER 0x12 -> 0x0D:
 - The false `0x0D` code-deployed citations are purged (0x0D now exists in code),
