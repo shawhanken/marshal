@@ -13,7 +13,5 @@ releases/
 marshal.db
 .mcp.json
 
-# internal working docs — kept local, not published to the remote
-docs/discuz/
-docs/plans/
-docs/superpowers/
+# working docs — kept local, not published to the remote (see README)
+docs/
