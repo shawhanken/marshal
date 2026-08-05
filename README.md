@@ -1,18 +1,24 @@
 # Marshal
 
-通用质量工程平台。Marshal 把任意项目的质量工程内容收拢为可插拔的
-Domain Pack,再用确定性的 CLI、知识核和执行器把它落到合并前门禁里。
-Cowboy 是当前仓库内置的第一个 Domain Pack,但不是平台本身的边界。
+A general-purpose quality-engineering platform. Marshal gathers any project's
+quality-engineering content into pluggable Domain Packs, then lands it in a
+pre-merge gate through a deterministic CLI, a knowledge core, and executors.
+Cowboy is the first Domain Pack bundled in this repository, but it is not the
+boundary of the platform itself.
 
-核心闭环:
+Core loop:
 
-- 风险分级: 根据 repo、diff 路径、标签和工作流全文判断变更风险。
-- 不变量门禁: 从 Domain Pack 选择本次改动必须执行的检查。
-- AI 对抗式 review: 聚合多视角发现,按 quorum 和 skeptic 投票裁决。
-- 逃逸棘轮: 漏过的 bug 必须登记为 escape,关闭时必须生成永久检查。
-- 知识核: 用 SQLite 记录不变量、escape、gate run、audit 和指标。
+- **Risk classification**: judge a change's risk from its repo, diff paths,
+  labels, and the full workflow text.
+- **Invariant gate**: select, from the Domain Pack, the checks this change must run.
+- **Adversarial AI review**: aggregate multi-perspective findings and adjudicate
+  them by quorum and skeptic votes.
+- **Escape ratchet**: any bug that slips through must be registered as an escape,
+  and closing it must produce a permanent check.
+- **Knowledge core**: record invariants, escapes, gate runs, audits, and metrics
+  in SQLite.
 
-## 快速开始
+## Quick start
 
 ```bash
 python -m venv .venv
@@ -21,40 +27,41 @@ pip install -e ".[dev,ci]"
 pytest -q
 ```
 
-安装 Claude Code 的 `/marshal` skill:
+Install the Claude Code `/marshal` skill:
 
 ```bash
 python -m marshal_core.cli setup
 ```
 
-`setup` 会把仓库内 `.claude/skills/marshal` 链接到
-`~/.claude/skills/marshal`,并检查 Python import 和 `zizmor` 是否可用。
+`setup` links the in-repo `.claude/skills/marshal` to
+`~/.claude/skills/marshal` and checks that the Python imports and `zizmor` are
+available.
 
-## 常用命令
+## Common commands
 
-所有命令都通过薄 CLI 执行,输入输出为 JSON:
+Every command runs through a thin CLI, with JSON in and JSON out:
 
 ```bash
 python -m marshal_core.cli <command> [options]
 ```
 
-| 命令 | 用途 |
+| Command | Purpose |
 |---|---|
-| `classify --repo node --paths ...` | 对变更做风险分级,输出 `high` / `mid` / `low` 和 review 维度 |
-| `ci-scan --paths .github/workflows/ci.yml` | 用 `zizmor` 审计 GitHub Actions 工作流;缺少工具时降级为 `escalate` 信号 |
-| `invariants --repo node --paths ...` | 列出本次变更适用的不变量和可执行命令 |
-| `review-quorum --findings-json ...` | 聚合多视角 review 发现,低置信噪声会被丢弃,高危结论会升级 |
-| `review-verify --votes-json ...` | 对每条发现做 skeptic 投票裁决 |
-| `spec-source --ref CIP-3` | 把规格引用解析到领域源码位置 |
-| `spec-requirements --ref CIP-3 --spec-root <repo>` | 从规格正文提取 RFC2119 requirement |
-| `conformance [--spec-root <repo>]` | 输出规格到不变量的覆盖矩阵;带 spec root 时给出 CIP 覆盖率和缺口 |
-| `ratchet-open --escape-id ... --desc ...` | 登记一次质量逃逸 |
-| `ratchet-close --escape-id ... --spawned-check ... --inv-json ...` | 关闭逃逸,并注册对应永久检查 |
-| `gate-record --change-ref ... --verdict pass` | 持久化一次门禁结果 |
-| `metrics` | 汇总知识核中的质量指标 |
-| `setup` | 安装本机 skill 链接并做基础健康检查 |
+| `classify --repo node --paths ...` | Risk-classify a change, emitting `high` / `mid` / `low` and review dimensions |
+| `ci-scan --paths .github/workflows/ci.yml` | Audit GitHub Actions workflows with `zizmor`; degrades to an `escalate` signal when the tool is missing |
+| `invariants --repo node --paths ...` | List the invariants that apply to this change, with their runnable commands |
+| `review-quorum --findings-json ...` | Aggregate multi-perspective review findings — low-confidence noise is dropped, high-severity conclusions are escalated |
+| `review-verify --votes-json ...` | Adjudicate each finding with a skeptic vote |
+| `spec-source --ref CIP-3` | Resolve a spec reference to its location in the domain source |
+| `spec-requirements --ref CIP-3 --spec-root <repo>` | Extract RFC2119 requirements from the spec text |
+| `conformance [--spec-root <repo>]` | Emit the spec-to-invariant coverage matrix; with a spec root, report CIP coverage and gaps |
+| `ratchet-open --escape-id ... --desc ...` | Register a quality escape |
+| `ratchet-close --escape-id ... --spawned-check ... --inv-json ...` | Close an escape and register its permanent check |
+| `gate-record --change-ref ... --verdict pass` | Persist a gate result |
+| `metrics` | Summarize the quality metrics in the knowledge core |
+| `setup` | Install the local skill link and run basic health checks |
 
-示例:
+Examples:
 
 ```bash
 python -m marshal_core.cli classify \
@@ -73,8 +80,10 @@ python -m marshal_core.cli ratchet-open \
 
 ## GitHub Action
 
-仓库提供一个 composite action,用于被纳管 repo 在 CI 中向 Marshal brain
-拉取适用不变量并回报执行结果。当前设计是影子安全模式:记录和报告,不直接阻断。
+The repository ships a composite action that lets a managed repo pull the
+applicable invariants from the Marshal brain in CI and report back its results.
+The current design is a shadow-safe mode: it records and reports, it does not
+block directly.
 
 ```yaml
 jobs:
@@ -88,32 +97,34 @@ jobs:
           repo: node
 ```
 
-`base-ref` 可选;不传时 action 默认比较 `HEAD~1...HEAD`。
+`base-ref` is optional; when omitted, the action defaults to comparing
+`HEAD~1...HEAD`.
 
-## 仓库布局
+## Repository layout
 
-| 路径 | 内容 |
+| Path | Contents |
 |---|---|
-| `src/marshal_core/` | 领域无关核心:CLI、契约、知识核、review 聚合、GitHub adapter、orchestrator、invariant gate、reporter |
-| `src/marshal_pack_cowboy/` | Cowboy Domain Pack:风险分级规则、不变量目录、规格解析、CI 安全检查 |
-| `.claude/skills/marshal/` | Claude Code `/marshal` skill 及门禁、review、conformance、ratchet 流程说明 |
-| `.agents/skills/marshal/` | Codex/agents 侧同名 skill 副本 |
-| `marshal.db` | 默认 SQLite 知识核 |
-| `action.yml` | 被纳管 repo 使用的 GitHub composite action |
-| `docs/` | 方法论、架构蓝图和实施计划 |
-| `tests/` | CLI、Domain Pack、知识核、门禁、reporter、CI 安全等测试 |
+| `src/marshal_core/` | Domain-agnostic core: CLI, contracts, knowledge core, review aggregation, GitHub adapter, orchestrator, invariant gate, reporter |
+| `src/marshal_pack_cowboy/` | The Cowboy Domain Pack: risk-classification rules, invariant catalog, spec resolution, CI-security checks |
+| `.claude/skills/marshal/` | The Claude Code `/marshal` skill and its gate / review / conformance / ratchet flow docs |
+| `.agents/skills/marshal/` | The Codex/agents-side copy of the same skill |
+| `marshal.db` | The default SQLite knowledge core |
+| `action.yml` | The GitHub composite action used by managed repos |
+| `docs/` | Methodology, architecture blueprints, and implementation plans |
+| `tests/` | Tests for the CLI, Domain Pack, knowledge core, gate, reporter, CI security, etc. |
 
-## 配置
+## Configuration
 
-| 环境变量 | 默认值 | 说明 |
+| Environment variable | Default | Description |
 |---|---|---|
-| `MARSHAL_HOME` | 当前源码仓库根目录 | 查找 `.claude/skills/marshal` 和默认数据库的位置 |
-| `MARSHAL_DB` | `sqlite:///$MARSHAL_HOME/marshal.db` | SQLAlchemy 数据库 URL |
+| `MARSHAL_HOME` | The current source-repo root | Where `.claude/skills/marshal` and the default database are located |
+| `MARSHAL_DB` | `sqlite:///$MARSHAL_HOME/marshal.db` | The SQLAlchemy database URL |
 
-`ci-scan` 需要 `zizmor`。推荐安装 `.[ci]`;没有安装时命令会返回非零并输出
-`degraded: true`,让上层门禁进入人工判断,避免假通过。
+`ci-scan` requires `zizmor`. Installing `.[ci]` is recommended; when it is
+absent, the command returns non-zero and emits `degraded: true`, pushing the
+gate above it into manual judgment so nothing passes falsely.
 
-## 开发维护
+## Development
 
 ```bash
 pip install -e ".[dev,ci]"
@@ -121,5 +132,5 @@ pytest -q
 ruff check src tests
 ```
 
-README 是入口文档;更完整的方法论、架构和实施计划见
-[`docs/`](docs/README.md)。
+The README is the entry point; the fuller methodology, architecture, and
+implementation plans live in [`docs/`](docs/README.md).
