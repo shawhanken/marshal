@@ -3,13 +3,17 @@ from marshal_core.contracts import NormalizedEvent, DispatchJob, StructuredResul
 from marshal_core.domain_pack import DomainPack
 
 
+def event_scope(event: NormalizedEvent) -> dict:
+    return {"repo": event.repo, "diff_paths": event.diff_paths,
+            "labels": event.labels}
+
+
 class InvariantGate:
     def __init__(self, pack: DomainPack):
         self.pack = pack
 
     def build_dispatch(self, event: NormalizedEvent) -> DispatchJob:
-        invs = self.pack.list_invariants({"repo": event.repo,
-                                          "diff_paths": event.diff_paths})
+        invs = self.pack.list_invariants(event_scope(event))
         return DispatchJob(
             job_id=f"inv-{event.change_ref}",
             kind="invariant",
@@ -20,7 +24,7 @@ class InvariantGate:
 
     def evaluate(self, event: NormalizedEvent, job: DispatchJob,
                  result: StructuredResult) -> GateDecision:
-        tier = self.pack.classify({"repo": event.repo, "diff_paths": event.diff_paths})
+        tier = self.pack.classify(event_scope(event))
 
         if result.status != "ok":
             verdict = "escalate" if tier == "high" else "pass"

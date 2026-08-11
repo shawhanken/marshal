@@ -4,13 +4,15 @@ from marshal_core.contracts import NormalizedEvent, GateDecision
 _SHADOW_CONCLUSION = "neutral"
 
 
-def parse_pull_request_event(payload: dict) -> NormalizedEvent:
+def parse_pull_request_event(payload: dict, diff_paths: list[str]) -> NormalizedEvent:
+    """纯解析。diff_paths 由调用方从 GitHub files API 取得 — webhook payload
+    本身不含改动文件列表, 任何藏在 payload 里的字段都不可信。"""
     pr = payload["pull_request"]
     return NormalizedEvent(
         kind="pr",
         repo=payload["repository"]["name"],
         change_ref=pr["head"]["sha"],
-        diff_paths=payload.get("_diff_paths", []),
+        diff_paths=diff_paths,
         labels=[lbl["name"] for lbl in pr.get("labels", [])],
         actor=pr.get("user", {}).get("login", ""),
     )

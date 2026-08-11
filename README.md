@@ -213,7 +213,11 @@ jobs:
           repo: node                                # this repo's id in the Domain Pack
 ```
 
-- `base-ref` is optional; when omitted the action compares `HEAD~1...HEAD`.
+- `base-ref` is optional; when omitted the action derives the diff base from the
+  triggering event (`pull_request`: the PR's base SHA, `push`: the `before` SHA,
+  `merge_group`: the queue's base SHA) and fetches it if the checkout is
+  shallow. If no base can be determined (e.g. the first push of a new branch),
+  the action fails loudly instead of reporting an empty diff.
 - The action computes the changed paths, then runs the bundled reporter, which
   `POST`s to `{brain-url}/plan` and `{brain-url}/results`. The reporter uses only
   the Python standard library, so the runner needs **Python 3 and network access

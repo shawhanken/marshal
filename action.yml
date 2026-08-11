@@ -8,7 +8,7 @@ inputs:
     description: "本 repo 在 Marshal 领域包中的标识"
     required: true
   base-ref:
-    description: "比较基线 (算 diff_paths), 默认 HEAD~1"
+    description: "比较基线; 缺省按事件推导 (PR: base SHA / push: before / merge_group: base_sha)"
     required: false
     default: ""
 runs:
@@ -17,16 +17,49 @@ runs:
     - name: Compute diff paths
       id: diff
       shell: bash
+      env:
+        BASE_INPUT: ${{ inputs.base-ref }}
+        EVENT_NAME: ${{ github.event_name }}
+        PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        PUSH_BEFORE: ${{ github.event.before }}
+        MG_BASE_SHA: ${{ github.event.merge_group.base_sha }}
       run: |
-        BASE="${{ inputs.base-ref }}"
-        if [ -z "$BASE" ]; then BASE="$(git rev-parse HEAD~1 2>/dev/null || echo HEAD)"; fi
-        PATHS=$(git diff --name-only "$BASE"...HEAD 2>/dev/null | paste -sd, -)
-        echo "paths=$PATHS" >> "$GITHUB_OUTPUT"
+        set -euo pipefail
+        BASE="$BASE_INPUT"
+        if [ -z "$BASE" ]; then
+          case "$EVENT_NAME" in
+            pull_request|pull_request_target) BASE="$PR_BASE_SHA" ;;
+            push)                             BASE="$PUSH_BEFORE" ;;
+            merge_group)                      BASE="$MG_BASE_SHA" ;;
+          esac
+        fi
+        if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+          echo "::error::cannot determine a diff base for event '$EVENT_NAME' (new-branch push?); pass base-ref explicitly"
+          exit 1
+        fi
+        if ! git rev-parse -q --verify "$BASE^{commit}" >/dev/null 2>&1; then
+          git fetch --no-tags --depth=1 origin "$BASE" || {
+            echo "::error::base commit $BASE is not available locally and could not be fetched (shallow checkout?)"
+            exit 1
+          }
+        fi
+        if ! PATHS=$(git diff --name-only "$BASE" HEAD); then
+          echo "::error::git diff against $BASE failed; refusing to fall back to an empty diff"
+          exit 1
+        fi
+        if [ -z "$PATHS" ]; then
+          echo "::warning::empty diff between $BASE and HEAD"
+        fi
+        echo "paths=$(printf '%s\n' "$PATHS" | paste -sd, -)" >> "$GITHUB_OUTPUT"
     - name: Run Marshal reporter
       shell: bash
+      env:
+        BRAIN_URL: ${{ inputs.brain-url }}
+        REPO_ID: ${{ inputs.repo }}
+        DIFF_PATHS: ${{ steps.diff.outputs.paths }}
       run: |
-        python3 "${{ github.action_path }}/src/marshal_core/executor/reporter.py" \
-          --brain-url "${{ inputs.brain-url }}" \
-          --repo "${{ inputs.repo }}" \
-          --change-ref "${GITHUB_SHA}" \
-          --diff-paths "${{ steps.diff.outputs.paths }}"
+        python3 "$GITHUB_ACTION_PATH/src/marshal_core/executor/reporter.py" \
+          --brain-url "$BRAIN_URL" \
+          --repo "$REPO_ID" \
+          --change-ref "$GITHUB_SHA" \
+          --diff-paths "$DIFF_PATHS"

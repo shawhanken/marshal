@@ -4,7 +4,7 @@ from marshal_core.contracts import (
 )
 from marshal_core.domain_pack import DomainPack
 from marshal_core.knowledge.store import Store
-from marshal_core.modules.invariant_gate import InvariantGate
+from marshal_core.modules.invariant_gate import InvariantGate, event_scope
 
 
 class Orchestrator:
@@ -14,8 +14,7 @@ class Orchestrator:
         self.gate = InvariantGate(pack)
 
     def handle_event(self, event: NormalizedEvent) -> DispatchJob:
-        for inv in self.pack.list_invariants({"repo": event.repo,
-                                             "diff_paths": event.diff_paths}):
+        for inv in self.pack.list_invariants(event_scope(event)):
             self.store.register_invariant(
                 id=inv.id, domain_pack=self.pack.id, domain=inv.domain,
                 spec_ref=inv.spec_ref, executor_kind=inv.executor_kind,
@@ -39,8 +38,7 @@ class Orchestrator:
     def plan(self, event: NormalizedEvent) -> PlanResponse:
         """告诉 CI 执行器: 本次改动跑哪些不变量、各自怎么跑。复用 handle_event 的登记。"""
         job = self.handle_event(event)
-        invs = self.pack.list_invariants({"repo": event.repo,
-                                          "diff_paths": event.diff_paths})
+        invs = self.pack.list_invariants(event_scope(event))
         return PlanResponse(
             job_id=job.job_id,
             invariants=[{"invariant_id": i.id, "run_command": i.run_command}
