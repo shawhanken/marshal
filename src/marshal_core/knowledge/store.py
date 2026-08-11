@@ -1,7 +1,12 @@
 """知识核读写薄封装。"""
 from sqlalchemy import select, func, or_
 from sqlalchemy.orm import Session
-from .models import InvariantRegistry, GateRun, AuditLog, EscapeRegistry, Concept, ConceptEdge, ConceptAnchorRow
+from .models import (
+    InvariantRegistry, GateRun, AuditLog, EscapeRegistry, Concept, ConceptEdge,
+    ConceptAnchorRow, ReviewRun, ReviewFinding,
+)
+
+_HUMAN_VERDICTS = {"accepted", "rejected", "modified"}
 
 
 class Store:
@@ -96,7 +101,8 @@ class Store:
             },
         }
 
-    def close_escape(self, escape_id: str, spawned_check: str) -> EscapeRegistry:
+    def close_escape(self, escape_id: str, spawned_check: str,
+                     fix_ref: str | None = None) -> EscapeRegistry:
         if not spawned_check:
             raise ValueError("cannot close escape without a spawned_check (棘轮纪律)")
         esc = self.s.get(EscapeRegistry, escape_id)
@@ -104,8 +110,39 @@ class Store:
             raise ValueError(f"escape not found: {escape_id}")
         esc.spawned_check = spawned_check
         esc.status = "closed"
+        if fix_ref is not None:
+            esc.fix_ref = fix_ref
         self.s.commit()
         return esc
+
+    def open_review_run(self, **kw) -> ReviewRun:
+        run = ReviewRun(**kw)
+        self.s.add(run)
+        self.s.commit()
+        return run
+
+    def record_finding(self, **kw) -> ReviewFinding:
+        f = ReviewFinding(**kw)
+        self.s.add(f)
+        self.s.commit()
+        return f
+
+    def list_findings(self, run_id: int) -> list[ReviewFinding]:
+        stmt = select(ReviewFinding).where(ReviewFinding.run_id == run_id)
+        return list(self.s.scalars(stmt))
+
+    def set_human_verdict(self, finding_id: int, verdict: str,
+                          note: str = "") -> ReviewFinding:
+        if verdict not in _HUMAN_VERDICTS:
+            raise ValueError(
+                f"human verdict must be one of {sorted(_HUMAN_VERDICTS)}, got {verdict!r}")
+        f = self.s.get(ReviewFinding, finding_id)
+        if f is None:
+            raise ValueError(f"finding not found: {finding_id}")
+        f.human_verdict = verdict
+        f.human_note = note
+        self.s.commit()
+        return f
 
     def upsert_concept(self, **kw) -> Concept:
         """派生写入 (单向 markdown→DB): 幂等 upsert 一个概念缓存行。"""

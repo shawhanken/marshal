@@ -60,6 +60,44 @@ class EscapeRegistry(Base):
     postmortem_ref: Mapped[str | None] = mapped_column(String, nullable=True)
     spawned_check: Mapped[str | None] = mapped_column(String, nullable=True)
     status: Mapped[str] = mapped_column(String, default="open")
+    fix_ref: Mapped[str | None] = mapped_column(String, nullable=True)
+    missed_by_run_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class ReviewRun(Base):
+    """⑧ review trace: 一次对抗式 review 的 provenance — 谁 (host/model) 用哪版
+    prompt (skill_rev = marshal checkout 的 git rev) 审了什么。上下文按引用记
+    (context_ref: 可重建的 repo@sha + 闭包清单), 不落全量 payload (spec §3.4 的
+    "存引用不存载荷" 同一原则)。"""
+    __tablename__ = "review_run"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    change_ref: Mapped[str] = mapped_column(String, index=True)
+    repo: Mapped[str] = mapped_column(String, default="")
+    mode: Mapped[str] = mapped_column(String, default="regular")   # regular|deep
+    host: Mapped[str] = mapped_column(String, default="")          # claude|codex|...
+    model: Mapped[str] = mapped_column(String, default="")
+    skill_rev: Mapped[str] = mapped_column(String, default="")
+    context_ref: Mapped[str] = mapped_column(String, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class ReviewFinding(Base):
+    """⑧ finding 级裁决链: 假说 → skeptic 投票 → quorum → 人类终审。human_verdict
+    是唯一的金标注 (accepted|rejected|modified), 由 finding-verdict 命令事后补录;
+    空串 = 未终审, 不预填。"""
+    __tablename__ = "review_finding"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[int] = mapped_column(Integer, index=True)
+    key: Mapped[str] = mapped_column(String, index=True)
+    title: Mapped[str] = mapped_column(String, default="")
+    claim: Mapped[str] = mapped_column(String, default="")
+    location: Mapped[str] = mapped_column(String, default="")
+    severity: Mapped[str] = mapped_column(String, default="")
+    lens: Mapped[str] = mapped_column(String, default="")
+    votes: Mapped[list] = mapped_column(JSON, default=list)
+    quorum_verdict: Mapped[str] = mapped_column(String, default="")  # survived|killed|unverified
+    human_verdict: Mapped[str] = mapped_column(String, default="")   # ""|accepted|rejected|modified
+    human_note: Mapped[str] = mapped_column(String, default="")
 
 
 class Concept(Base):
