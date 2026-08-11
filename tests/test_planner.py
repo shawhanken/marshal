@@ -17,6 +17,17 @@ def test_plan_returns_job_and_run_specs(db_session):
     assert fee["run_command"][:2] == ["cargo", "test"]
 
 
+def test_plan_declares_where_each_invariant_lives(db_session):
+    orch = Orchestrator(pack=CowboyPack(), store=Store(db_session))
+    ev = NormalizedEvent(kind="pr", repo="wallet", change_ref="w1",
+                         diff_paths=["src/lib/cbor/encode.js"])
+    plan = orch.plan(ev)
+    tx = next(i for i in plan.invariants
+              if i["invariant_id"] == "contract.tx_encoding_roundtrip")
+    assert tx["location_repo"] == "node"      # lives in node, not in wallet
+    assert tx["executor_kind"]
+
+
 def test_plan_empty_for_unknown_repo(db_session):
     orch = Orchestrator(pack=CowboyPack(), store=Store(db_session))
     ev = NormalizedEvent(kind="pr", repo="other", change_ref="z1")
