@@ -195,6 +195,15 @@ process manager.
 > that cache, so keep it to one uvicorn worker (scale by fronting several
 > single-worker instances only if each repo maps to one instance).
 
+> ⚠️ **Do not expose the brain to the public internet.** The service currently
+> has **no authentication**: `/webhook` does not verify GitHub's
+> `X-Hub-Signature-256` webhook signature, and `/plan` / `/results` accept any
+> caller. Because the CI reporter executes the commands the brain returns,
+> anyone who can reach (or impersonate) the brain can run arbitrary commands on
+> your CI runners. Deploy it only on a trusted internal network, reachable
+> exclusively by your GitHub webhook forwarder and your own CI, until
+> authentication lands.
+
 ### 2. The GitHub Action (managed repos)
 
 The repository ships a composite action that lets a managed repo pull its

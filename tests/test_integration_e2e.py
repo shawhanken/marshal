@@ -41,3 +41,12 @@ def test_full_slice_shadow(client):
     assert body["verdict"] == "pass"
     assert body["check_run"]["conclusion"] == "neutral"   # 影子模式
     assert body["check_run"]["head_sha"] == "e2e123"
+
+
+def test_results_for_unknown_job_rejected(client):
+    result = {
+        "job_id": "inv-never-planned", "schema_version": "1", "kind": "invariant",
+        "payload": {"results": []}, "cost": 0.0, "status": "ok",
+    }
+    r = client.post("/results", json=result)
+    assert r.status_code == 404
