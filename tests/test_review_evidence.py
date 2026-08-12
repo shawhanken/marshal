@@ -1,3 +1,4 @@
+import warnings
 import json
 import os
 import subprocess
@@ -12,12 +13,22 @@ from marshal_core.knowledge.store import Store
 from marshal_core.knowledge.evidence import evidence_has_unresolved, validate_review_evidence
 
 
+HEAD_SHA = "a" * 40
+BASE_SHA = "b" * 40
+TREE_SHA = "c" * 40
+REVIEW_PLAN = {"expected_lenses": ["correctness"],
+               "expected_commands": ["invariants"],
+               "expected_external_scans": ["almanax"]}
+
 def _manifest(**overrides):
     manifest = {
-        "head_sha": "head",
-        "base_sha": "base",
-        "tree_sha": "tree",
+        "head_sha": HEAD_SHA,
+        "base_sha": BASE_SHA,
+        "tree_sha": TREE_SHA,
         "platform": "linux-x86_64",
+        "worktree": "/tmp/review-worktree",
+        "toolchain": "python3.12",
+        "context_ref": "marshal@abc closure:7-files",
         "steps": {
             "closure": {"status": "complete"},
             "scout": {"status": "complete"},
@@ -35,21 +46,25 @@ def _manifest(**overrides):
     manifest.update(overrides)
     return manifest
 
+def _open(store, change_ref=HEAD_SHA):
+    return store.open_review_run(change_ref=change_ref, **REVIEW_PLAN)
+
+
 
 def test_complete_review_run_requires_resolved_evidence(db_session):
     store = Store(db_session)
-    run = store.open_review_run(change_ref="head")
+    run = _open(store)
     closed = store.close_review_run(run.id, "complete", _manifest())
     assert closed.status == "complete"
     assert closed.evidence["external_scans"][0]["findings"] == 0
-    sparse = store.open_review_run(change_ref="sparse")
+    sparse = _open(store, "sparse")
     with pytest.raises(ValueError):
         store.close_review_run(sparse.id, "complete", {"head_sha": "head"})
 
 
 def test_unavailable_scan_is_not_zero_findings(db_session):
     store = Store(db_session)
-    run = store.open_review_run(change_ref="head")
+    run = _open(store)
     unavailable = _manifest(external_scans=[{
         "name": "almanax", "status": "unavailable", "findings": 0,
         "reason": "quota reached",
@@ -64,11 +79,11 @@ def test_unavailable_scan_is_not_zero_findings(db_session):
 
 def test_complete_review_run_rejects_missing_lens_or_failed_command(db_session):
     store = Store(db_session)
-    run = store.open_review_run(change_ref="head")
+    run = _open(store)
     with pytest.raises(ValueError, match="unresolved"):
         store.close_review_run(run.id, "complete", _manifest(
-            lenses={"expected": ["correctness", "replay"],
-                    "returned": ["correctness"], "missing": ["replay"]}))
+            lenses={"expected": ["correctness"],
+                    "returned": [], "missing": ["correctness"]}))
     with pytest.raises(ValueError):
         store.close_review_run(run.id, "complete", _manifest(
             commands=[{"name": "invariants", "status": "not_run"}]))
@@ -91,7 +106,7 @@ def test_evidence_validation_and_unresolved_helper():
 
 def test_complete_manifest_rejects_empty_or_arbitrary_sections(db_session):
     store = Store(db_session)
-    run = store.open_review_run(change_ref="head")
+    run = _open(store)
     empty = {
         "head_sha": "head", "base_sha": "base", "tree_sha": "tree",
         "steps": {}, "lenses": {}, "commands": [], "external_scans": [],
@@ -105,7 +120,7 @@ def test_complete_manifest_rejects_empty_or_arbitrary_sections(db_session):
 
 def test_complete_manifest_binds_sha_and_command_results(db_session):
     store = Store(db_session)
-    run = store.open_review_run(change_ref="head")
+    run = _open(store)
     with pytest.raises(ValueError, match="head_sha"):
         store.close_review_run(run.id, "complete", _manifest(head_sha="other"))
     with pytest.raises(ValueError, match="non-zero exit_code"):
@@ -121,7 +136,8 @@ def test_complete_manifest_binds_sha_and_command_results(db_session):
 
 def test_closed_review_run_is_immutable(db_session):
     store = Store(db_session)
-    run = store.open_review_run(change_ref="head")
+    run = _open(store)
+    finding = store.record_finding(run_id=run.id, key="closed")
     store.close_review_run(run.id, "complete", _manifest())
     with pytest.raises(ValueError, match="already closed"):
         store.close_review_run(run.id, "degraded", _manifest(
@@ -129,6 +145,8 @@ def test_closed_review_run_is_immutable(db_session):
                              "reason": "quota reached"}]))
     with pytest.raises(ValueError, match="already closed"):
         store.record_finding(run_id=run.id, key="late")
+    with pytest.raises(ValueError, match="already closed"):
+        store.set_human_verdict(finding.id, "accepted")
 
 
 
@@ -142,7 +160,13 @@ def _cli(args, db):
 
 def test_cli_review_run_close_and_show(tmp_path):
     db = tmp_path / "trace.db"
-    opened = _cli(["review-run-open", "--change-ref", "head"], db)
+    opened = _cli([
+        "review-run-open", "--change-ref", HEAD_SHA,
+        "--expected-lenses-json", json.dumps(REVIEW_PLAN["expected_lenses"]),
+        "--expected-commands-json", json.dumps(REVIEW_PLAN["expected_commands"]),
+        "--expected-external-scans-json",
+        json.dumps(REVIEW_PLAN["expected_external_scans"]),
+    ], db)
     assert opened.returncode == 0, opened.stderr
     run_id = json.loads(opened.stdout)["run_id"]
     closed = _cli(["review-run-close", "--run-id", str(run_id), "--status", "complete",
@@ -152,7 +176,7 @@ def test_cli_review_run_close_and_show(tmp_path):
     assert shown.returncode == 0, shown.stderr
     body = json.loads(shown.stdout)
     assert body["status"] == "complete"
-    assert body["evidence"]["head_sha"] == "head"
+    assert body["evidence"]["head_sha"] == HEAD_SHA
     assert body["findings"] == []
 
 
@@ -164,8 +188,59 @@ def test_existing_review_schema_is_migrated(tmp_path):
         conn.execute(text("DROP INDEX ix_review_run_status"))
         conn.execute(text("ALTER TABLE review_run DROP COLUMN status"))
         conn.execute(text("ALTER TABLE review_run DROP COLUMN evidence"))
+
     ensure_schema(engine)
     columns = {column["name"] for column in inspect(engine).get_columns("review_run")}
     assert {"status", "evidence"} <= columns
     finding_indexes = {index["name"]: index for index in inspect(engine).get_indexes("review_finding")}
     assert finding_indexes["uq_review_finding_run_key"]["unique"] == 1
+
+def test_complete_manifest_rejects_unproven_provenance_and_plan_identity(db_session):
+    store = Store(db_session)
+    run = _open(store)
+    with pytest.raises(ValueError, match="exit_code"):
+        store.close_review_run(run.id, "complete", _manifest(
+            commands=[{
+                "name": "invariants", "status": "pass", "argv": ["true"],
+                "exit_code": None, "log_ref": "sha256:log",
+            }]))
+    with pytest.raises(ValueError, match="hexadecimal SHA"):
+        store.close_review_run(run.id, "complete", _manifest(base_sha="not-a-sha"))
+    with pytest.raises(ValueError, match="does not match"):
+        store.close_review_run(run.id, "complete", _manifest(
+            lenses={"expected": ["bogus"], "returned": ["bogus"], "missing": []}))
+    with pytest.raises(ValueError, match="does not match"):
+        store.close_review_run(run.id, "complete", _manifest(
+            external_scans=[{"name": "made-up", "status": "complete", "findings": 0}]))
+
+
+def test_degraded_manifest_requires_named_steps_and_command_reasons(db_session):
+    store = Store(db_session)
+    run = _open(store)
+    with pytest.raises(ValueError, match="exactly"):
+        store.close_review_run(run.id, "degraded", _manifest(
+            steps={"junk": {"status": "degraded", "reason": "missing"}}))
+    with pytest.raises(ValueError, match="argv"):
+        store.close_review_run(run.id, "degraded", _manifest(
+            commands=[{"name": "invariants", "status": "pass"}]))
+
+def test_duplicate_legacy_findings_defer_unique_index_without_data_loss():
+    engine = create_engine("sqlite:///:memory:")
+    with engine.begin() as conn:
+        conn.execute(text(
+            "CREATE TABLE review_finding (id INTEGER PRIMARY KEY, run_id INTEGER, "
+            "key VARCHAR, title VARCHAR, claim VARCHAR, location VARCHAR, severity VARCHAR, "
+            "lens VARCHAR, votes JSON, quorum_verdict VARCHAR, human_verdict VARCHAR, "
+            "human_note VARCHAR)"
+        ))
+        conn.execute(text(
+            "INSERT INTO review_finding (run_id, key) VALUES (1, 'duplicate'), (1, 'duplicate')"
+        ))
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        ensure_schema(engine)
+    assert any("unique index deferred" in str(item.message) for item in caught)
+    with engine.connect() as conn:
+        assert conn.execute(text(
+            "SELECT COUNT(*) FROM review_finding WHERE run_id = 1 AND key = 'duplicate'"
+        )).scalar_one() == 2

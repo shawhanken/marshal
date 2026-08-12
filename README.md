@@ -204,9 +204,31 @@ one:
 ```bash
 run=$(python -m marshal_core.cli review-run-open \
   --change-ref <head-sha> --repo node --mode deep --host codex --model <model> \
+  --expected-lenses-json '["correctness"]' \
+  --expected-commands-json '["invariants"]' \
+  --expected-external-scans-json '["almanax"]' \
   | jq -r .run_id)
 python -m marshal_core.cli review-run-close --run-id "$run" --status degraded \
-  --evidence-json "{\"head_sha\":\"<head-sha>\",\"base_sha\":\"<base-sha>\",\"steps\":{\"scout\":{\"status\":\"degraded\",\"reason\":\"agent stalled\"}},\"external_scans\":[{\"name\":\"almanax\",\"status\":\"unavailable\",\"reason\":\"quota reached\"}]}"
+  --evidence-json '{
+    "head_sha": "<head-sha>", "base_sha": "<base-sha>", "tree_sha": "<tree-sha>",
+    "platform": "linux-x86_64", "worktree": "/tmp/review-worktree",
+    "toolchain": "python3.12", "context_ref": "node@<head-sha>",
+    "steps": {
+      "closure": {"status": "complete"},
+      "scout": {"status": "degraded", "reason": "agent stalled"},
+      "prove": {"status": "complete"},
+      "invariant": {"status": "complete"}
+    },
+    "lenses": {
+      "expected": ["correctness"], "returned": [], "missing": ["correctness"]
+    },
+    "commands": [
+      {"name": "invariants", "status": "not_run", "reason": "agent stalled"}
+    ],
+    "external_scans": [
+      {"name": "almanax", "status": "unavailable", "reason": "quota reached"}
+    ]
+  }'
 ```
 
 The manifest should include commit/tree identifiers, closure/scout/prove and

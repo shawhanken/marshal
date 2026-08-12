@@ -61,8 +61,8 @@ description: Use when reviewing a change before merge — runs the Marshal quali
 4. 按 `review_dimensions` 调 `/code-review ultra`(高危全视角)做对抗式 review,默认怀疑。
    若 classify 返回 `security_hazards`(否定性属性,如机密性),把每条 `prompt` 注入
    security lens —— 这类洞**不变量门禁抓不到**(往返测试在脆弱构造上为绿),只能靠 review。
-   在派发前执行 `review-run-open` 保存 run_id；在聚合和外部检查结束后执行 `review-run-close`，将所有步骤、lens、命令、测试和外部扫描状态写入 evidence manifest。任何不可用或未返回项都必须关闭为 `degraded`，并在最终报告引用 run_id。
-5. 汇总 `GateDecision`:任一不变量 fail→block;高危+确认高severity发现→escalate;跑不起来/超预算→escalate+degraded;否则 pass。
+   在派发前执行 review-run-open 保存 run_id 和不可变的审计计划（expected lenses/commands/external scans）；在聚合、终审和外部检查结束后执行 review-run-close，将所有步骤、计划内 lens、命令、测试和外部扫描状态写入 evidence manifest。finding-verdict 必须在 close 前执行；关闭后的 run（包括 findings 和 verdict）不可再写入。任何不可用或未返回项都必须关闭为 degraded，并在最终报告引用 run_id。
+   Complete 还要求有效的 40/64 位十六进制 head/base/tree SHA、platform/worktree/toolchain/context_ref、严格的 closure/scout/prove/invariant 四阶段和与 open 计划一致的 lens/command/scan 名称；pass 命令必须带 argv、整数 exit_code、log_ref 且 exit 0。
 6. `cli gate-record` 落库;有 PR# 且用户要 → 贴 PR 评论;终端打印摘要。
 7. 若在已合并代码上确认高severity发现 → 提议转流 C。
 

@@ -59,8 +59,8 @@ description: Use when reviewing a change before merge in Codex — runs the Mars
 2. 对每个 repo 调 cli classify，得到 tier、reasons、contracts_hit、review_dimensions。
 3. 调 cli invariants，在被审代码的干净 worktree 运行每条 run_command。PR 模式使用 PR head SHA；本地模式使用当前 HEAD；跨 repo 契约使用目标 repo tip。绝不在落后的主工作树把 running 0 tests 当成功。
 4. 加载 references/review-orchestration.md，按 review_dimensions 调用 Codex 当前会话可用的 subagent 能力，每个 lens 一个独立 agent，并行完成后过 quorum。若 subagent 能力不可用，可顺序执行同样的 lenses；不得省略 lens 后声称审全。命中 security_hazards 时把每条 prompt 注入 security lens。
-   在派发前执行 `review-run-open` 保存 run_id；在聚合和外部检查结束后执行 `review-run-close`，将所有步骤、lens、命令、测试和外部扫描状态写入 evidence manifest。任何不可用或未返回项都必须关闭为 `degraded`，并在最终报告引用 run_id。
-5. 汇总 GateDecision：任一不变量 fail → block；高危且有确认的 high finding → escalate；任何步骤跑不起来或超预算 → escalate + degraded；否则 pass。
+   在派发前执行 review-run-open 保存 run_id 和不可变的审计计划（expected lenses/commands/external scans）；在聚合、终审和外部检查结束后执行 review-run-close，将所有步骤、计划内 lens、命令、测试和外部扫描状态写入 evidence manifest。finding-verdict 必须在 close 前执行；关闭后的 run（包括 findings 和 verdict）不可再写入。任何不可用或未返回项都必须关闭为 degraded，并在最终报告引用 run_id。
+   Complete 还要求有效的 40/64 位十六进制 head/base/tree SHA、platform/worktree/toolchain/context_ref、严格的 closure/scout/prove/invariant 四阶段和与 open 计划一致的 lens/command/scan 名称；pass 命令必须带 argv、整数 exit_code、log_ref 且 exit 0。
 6. 调 cli gate-record 落库；只有用户明确要求时才贴 PR 评论；终端输出摘要。
 7. 若在已合并代码上确认 high finding，提议转流 C。
 

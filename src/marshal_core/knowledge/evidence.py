@@ -7,6 +7,7 @@ that completed with zero findings.
 """
 
 from copy import deepcopy
+import re
 
 
 REVIEW_RUN_STATUSES = {"open", "complete", "degraded"}
@@ -14,6 +15,7 @@ STEP_STATUSES = {"complete", "degraded", "unavailable", "not_run", "failed"}
 COMMAND_STATUSES = {"pass", "fail", "degraded", "unavailable", "not_run"}
 EXTERNAL_STATUSES = {"complete", "degraded", "unavailable", "not_run"}
 REQUIRED_STEPS = {"closure", "scout", "prove", "invariant"}
+_SHA_RE = re.compile(r"^[0-9a-fA-F]{40}(?:[0-9a-fA-F]{24})?$")
 
 
 def _require_string(value, field: str, *, non_empty: bool = False) -> None:
@@ -27,6 +29,24 @@ def _validate_string_list(value, field: str) -> None:
         not isinstance(item, str) or not item.strip() for item in value
     ):
         raise ValueError(f"evidence {field} must be a list of non-empty strings")
+
+
+def _validate_sha(value, field: str, *, non_empty: bool = False) -> None:
+    _require_string(value, field, non_empty=non_empty)
+    if value is not None and value.strip() and not _SHA_RE.fullmatch(value):
+        raise ValueError(f"evidence {field} must be a 40- or 64-character hexadecimal SHA")
+
+
+def _validate_review_plan(plan) -> None:
+    if not isinstance(plan, dict):
+        raise ValueError("evidence review_plan must be an object")
+    for field in ("lenses", "commands", "external_scans"):
+        _validate_string_list(plan.get(field), f"review_plan.{field}")
+        values = plan[field]
+        if not values:
+            raise ValueError(f"evidence review_plan.{field} must not be empty")
+        if len(values) != len(set(values)):
+            raise ValueError(f"evidence review_plan.{field} must not contain duplicates")
 
 
 def _validate_status_map(value, field: str, allowed: set[str]) -> None:
@@ -62,19 +82,32 @@ def _validate_commands(commands, *, complete: bool = False) -> None:
             )
         if "argv" in command:
             _validate_string_list(command["argv"], f"{field}.argv")
-        if complete:
+        command_status = command["status"]
+        if complete or command_status == "pass":
             for required in ("argv", "exit_code", "log_ref"):
                 if required not in command:
-                    raise ValueError(f"evidence {field}.{required} is required for complete status")
+                    raise ValueError(
+                        f"evidence {field}.{required} is required for a passing command"
+                    )
             if not command["argv"]:
-                raise ValueError(f"evidence {field}.argv must not be empty for complete status")
+                raise ValueError(f"evidence {field}.argv must not be empty for a passing command")
             _require_string(command["log_ref"], f"{field}.log_ref", non_empty=True)
+
         if "exit_code" in command and command["exit_code"] is not None:
             if (isinstance(command["exit_code"], bool)
                     or not isinstance(command["exit_code"], int)):
                 raise ValueError(f"evidence {field}.exit_code must be an integer")
-        if command.get("status") == "pass" and command.get("exit_code") not in (None, 0):
-            raise ValueError(f"evidence {field} cannot be pass with a non-zero exit_code")
+        if command_status == "pass":
+            if isinstance(command.get("exit_code"), bool) or not isinstance(
+                command.get("exit_code"), int
+            ):
+                raise ValueError(f"evidence {field}.exit_code must be an integer for pass")
+            if command["exit_code"] != 0:
+                raise ValueError(f"evidence {field} cannot be pass with a non-zero exit_code")
+        elif "reason" not in command:
+            raise ValueError(f"evidence {field}.reason is required for non-passing commands")
+        elif not isinstance(command["reason"], str) or not command["reason"].strip():
+            raise ValueError(f"evidence {field}.reason must be a non-empty string")
         if "log_ref" in command and command["log_ref"] is not None:
             _require_string(command["log_ref"], f"{field}.log_ref")
         tests = command.get("tests")
@@ -93,6 +126,9 @@ def _validate_commands(commands, *, complete: bool = False) -> None:
                 raise ValueError(f"evidence {field} cannot be pass with failed tests")
     if complete and not commands:
         raise ValueError("evidence commands must contain at least one command for complete status")
+    names = [command["name"] for command in commands]
+    if len(names) != len(set(names)):
+        raise ValueError("evidence commands must not contain duplicate names")
 
 
 def _validate_external_scans(scans) -> None:
@@ -142,9 +178,14 @@ def validate_review_evidence(evidence: object, *, complete: bool = False) -> dic
     if not isinstance(evidence, dict):
         raise ValueError("review evidence must be a JSON object")
     out = deepcopy(evidence)
-    for field in ("head_sha", "base_sha", "tree_sha", "platform", "worktree", "toolchain"):
+    for field in (
+        "head_sha", "base_sha", "tree_sha", "platform", "worktree", "toolchain",
+        "context_ref",
+    ):
         if field in out and out[field] is not None:
             _require_string(out[field], f"{field}")
+    if "review_plan" in out:
+        _validate_review_plan(out["review_plan"])
     if "steps" in out:
         _validate_status_map(out["steps"], "steps", STEP_STATUSES)
     if "lenses" in out:
@@ -169,8 +210,13 @@ def validate_review_evidence(evidence: object, *, complete: bool = False) -> dic
     if "notes" in out:
         _validate_string_list(out["notes"], "notes")
     if complete:
-        for field in ("head_sha", "base_sha", "tree_sha"):
+        for field in (
+            "head_sha", "base_sha", "tree_sha", "platform", "worktree", "toolchain",
+            "context_ref",
+        ):
             _require_string(out.get(field), field, non_empty=True)
+        for field in ("head_sha", "base_sha", "tree_sha"):
+            _validate_sha(out[field], field, non_empty=True)
         steps = out.get("steps")
         if not isinstance(steps, dict) or set(steps) != REQUIRED_STEPS:
             raise ValueError(

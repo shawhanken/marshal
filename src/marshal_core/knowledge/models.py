@@ -1,4 +1,5 @@
 """知识核持久模型 — schema 领域无关 (domain/severity 取值由领域包定义)。"""
+import warnings
 from datetime import datetime, timezone
 from sqlalchemy import String, Integer, JSON, DateTime, Boolean, Float, UniqueConstraint, inspect, text
 from sqlalchemy.exc import OperationalError
@@ -42,10 +43,24 @@ def ensure_schema(engine) -> None:
                 "CREATE INDEX IF NOT EXISTS ix_review_run_status ON review_run (status)"
             ))
         if "review_finding" in inspector.get_table_names():
-            conn.execute(text(
-                "CREATE UNIQUE INDEX IF NOT EXISTS uq_review_finding_run_key "
-                "ON review_finding (run_id, key)"
-            ))
+            duplicate_count = conn.execute(text(
+                "SELECT COUNT(*) FROM ("
+                "SELECT run_id, key FROM review_finding "
+                "WHERE key IS NOT NULL GROUP BY run_id, key HAVING COUNT(*) > 1"
+                ")"
+            )).scalar_one()
+            if duplicate_count:
+                warnings.warn(
+                    "review_finding has duplicate (run_id, key) rows; "
+                    "unique index deferred to preserve legacy evidence",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+            else:
+                conn.execute(text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_review_finding_run_key "
+                    "ON review_finding (run_id, key)"
+                ))
 
 
 def _now() -> datetime:

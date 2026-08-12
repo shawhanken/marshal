@@ -337,6 +337,14 @@ def _detect_skill_rev() -> str:
         return ""
 
 
+def _optional_json_list(raw: str, field: str):
+    if not raw:
+        return None
+    value = json.loads(raw)
+    if not isinstance(value, list):
+        raise ValueError(f"{field} must be a JSON list")
+    return value
+
 def cmd_review_run_open(a) -> int:
     # ⑧ 开一次 review trace run: 落 provenance, 返回 run_id 供后续 review-verify 关联。
     skill_rev = a.skill_rev or _detect_skill_rev()
@@ -345,7 +353,11 @@ def cmd_review_run_open(a) -> int:
         run = Store(s).open_review_run(
             change_ref=a.change_ref, repo=a.repo, mode=a.mode,
             host=a.host, model=a.model, skill_rev=skill_rev,
-            context_ref=a.context_ref)
+            context_ref=a.context_ref,
+            expected_lenses=_optional_json_list(a.expected_lenses_json, "expected_lenses"),
+            expected_commands=_optional_json_list(a.expected_commands_json, "expected_commands"),
+            expected_external_scans=_optional_json_list(
+                a.expected_external_scans_json, "expected_external_scans"))
         return _emit({"run_id": run.id, "skill_rev": skill_rev, "status": run.status})
     finally:
         s.close()
@@ -889,6 +901,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     rro = sub.add_parser("review-run-open")
     rro.add_argument("--change-ref", dest="change_ref", required=True)
+    rro.add_argument("--expected-lenses-json", default="")
+    rro.add_argument("--expected-commands-json", default="")
+    rro.add_argument("--expected-external-scans-json", default="")
     rro.add_argument("--repo", default="")
     rro.add_argument("--mode", default="regular", choices=["regular", "deep"])
     rro.add_argument("--host", default="")
