@@ -344,7 +344,27 @@ def cmd_review_run_open(a) -> int:
             change_ref=a.change_ref, repo=a.repo, mode=a.mode,
             host=a.host, model=a.model, skill_rev=skill_rev,
             context_ref=a.context_ref)
-        return _emit({"run_id": run.id, "skill_rev": skill_rev})
+        return _emit({"run_id": run.id, "skill_rev": skill_rev, "status": run.status})
+    finally:
+        s.close()
+
+
+def cmd_review_run_close(a) -> int:
+    """Close a trace only after recording its reproducible evidence manifest."""
+    manifest = json.loads(a.evidence_json)
+    s = _session()
+    try:
+        run = Store(s).close_review_run(a.run_id, a.status, manifest)
+        return _emit({"run_id": run.id, "status": run.status,
+                      "evidence": run.evidence or {}})
+    finally:
+        s.close()
+
+
+def cmd_review_run_show(a) -> int:
+    s = _session()
+    try:
+        return _emit(Store(s).review_run_snapshot(a.run_id))
     finally:
         s.close()
 
@@ -874,6 +894,16 @@ def build_parser() -> argparse.ArgumentParser:
     rro.add_argument("--skill-rev", dest="skill_rev", default="")
     rro.add_argument("--context-ref", dest="context_ref", default="")
     rro.set_defaults(func=cmd_review_run_open)
+
+    rrc = sub.add_parser("review-run-close")
+    rrc.add_argument("--run-id", dest="run_id", type=int, required=True)
+    rrc.add_argument("--status", required=True, choices=["complete", "degraded"])
+    rrc.add_argument("--evidence-json", dest="evidence_json", required=True)
+    rrc.set_defaults(func=cmd_review_run_close)
+
+    rrs = sub.add_parser("review-run-show")
+    rrs.add_argument("--run-id", dest="run_id", type=int, required=True)
+    rrs.set_defaults(func=cmd_review_run_show)
 
     fv = sub.add_parser("finding-verdict")
     fv.add_argument("--finding-id", dest="finding_id", type=int, required=True)

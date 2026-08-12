@@ -13,26 +13,34 @@ def ensure_schema(engine) -> None:
     """Create tables and apply the additive migrations used by the trace store."""
     Base.metadata.create_all(engine)
     inspector = inspect(engine)
-    if "escape_registry" not in inspector.get_table_names():
-        return
-    existing = {column["name"] for column in inspector.get_columns("escape_registry")}
-    additions = {"fix_ref": "VARCHAR", "missed_by_run_id": "INTEGER"}
-    missing = [(name, sql_type) for name, sql_type in additions.items()
-               if name not in existing]
-    if not missing:
-        return
+    additions_by_table = {
+        "escape_registry": {"fix_ref": "VARCHAR", "missed_by_run_id": "INTEGER"},
+        # These columns were added after review tracing shipped. Keep this
+        # migration additive so existing sweep databases remain readable.
+        "review_run": {"status": "VARCHAR", "evidence": "JSON"},
+    }
     with engine.begin() as conn:
-        for name, sql_type in missing:
-            try:
-                conn.execute(text(
-                    f"ALTER TABLE escape_registry ADD COLUMN {name} {sql_type}"))
-            except OperationalError as exc:
-                # A second worker may have applied this additive migration after
-                # the inspector snapshot. Ignore only that race, never arbitrary
-                # migration failures.
-                message = str(exc).lower()
-                if "duplicate column" not in message and "already exists" not in message:
-                    raise
+        for table, additions in additions_by_table.items():
+            if table not in inspector.get_table_names():
+                continue
+            existing = {column["name"] for column in inspector.get_columns(table)}
+            for name, sql_type in additions.items():
+                if name in existing:
+                    continue
+                try:
+                    conn.execute(text(
+                        f"ALTER TABLE {table} ADD COLUMN {name} {sql_type}"))
+                except OperationalError as exc:
+                    # A second worker may have applied this additive migration
+                    # after the inspector snapshot. Ignore only that race,
+                    # never arbitrary migration failures.
+                    message = str(exc).lower()
+                    if "duplicate column" not in message and "already exists" not in message:
+                        raise
+        if "review_run" in inspector.get_table_names():
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_review_run_status ON review_run (status)"
+            ))
 
 
 def _now() -> datetime:
@@ -118,6 +126,8 @@ class ReviewRun(Base):
     model: Mapped[str] = mapped_column(String, default="")
     skill_rev: Mapped[str] = mapped_column(String, default="")
     context_ref: Mapped[str] = mapped_column(String, default="")
+    status: Mapped[str] = mapped_column(String, default="open", index=True)
+    evidence: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 

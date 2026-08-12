@@ -1,6 +1,9 @@
 """知识核读写薄封装。"""
 from sqlalchemy import select, func, or_
 from sqlalchemy.orm import Session
+from .evidence import (
+    REVIEW_RUN_STATUSES, evidence_has_unresolved, validate_review_evidence,
+)
 from .models import (
     InvariantRegistry, GateRun, AuditLog, EscapeRegistry, Concept, ConceptEdge,
     ConceptAnchorRow, PlannedEvent, ReviewRun, ReviewFinding,
@@ -155,10 +158,66 @@ class Store:
         return esc
 
     def open_review_run(self, **kw) -> ReviewRun:
-        run = ReviewRun(**kw)
+        # New runs start open; evidence is closed out explicitly after all
+        # lenses and external checks have reported their availability.
+        status = kw.pop("status", "open")
+        if status != "open" or status not in REVIEW_RUN_STATUSES:
+            raise ValueError("new review runs must have status open")
+        evidence = kw.pop("evidence", {})
+        run = ReviewRun(**kw, status=status, evidence=validate_review_evidence(evidence))
         self.s.add(run)
         self.s.commit()
         return run
+
+    def close_review_run(self, run_id: int, status: str, evidence: dict) -> ReviewRun:
+        if status not in {"complete", "degraded"}:
+            raise ValueError("review run close status must be complete or degraded")
+        run = self.s.get(ReviewRun, run_id)
+        if run is None:
+            raise ValueError(f"review run not found: {run_id}")
+        manifest = validate_review_evidence(evidence)
+        if status == "complete":
+            required = ("head_sha", "base_sha", "tree_sha", "steps", "lenses",
+                        "commands", "external_scans")
+            missing = [field for field in required if field not in manifest]
+            if missing:
+                raise ValueError(
+                    "complete review evidence is missing required sections: "
+                    + ", ".join(missing)
+                )
+        if status == "complete" and evidence_has_unresolved(manifest):
+            raise ValueError(
+                "cannot mark review run complete while evidence contains unresolved "
+                "steps, commands, lenses, or external scans"
+            )
+        run.status = status
+        run.evidence = manifest
+        self.s.commit()
+        return run
+
+    def review_run_snapshot(self, run_id: int) -> dict:
+        run = self.s.get(ReviewRun, run_id)
+        if run is None:
+            raise ValueError(f"review run not found: {run_id}")
+        findings = []
+        for finding in self.list_findings(run_id):
+            findings.append({
+                "id": finding.id, "key": finding.key, "title": finding.title,
+                "claim": finding.claim, "location": finding.location,
+                "severity": finding.severity, "lens": finding.lens,
+                "votes": finding.votes or [],
+                "quorum_verdict": finding.quorum_verdict,
+                "human_verdict": finding.human_verdict,
+                "human_note": finding.human_note,
+            })
+        return {
+            "run_id": run.id, "change_ref": run.change_ref, "repo": run.repo,
+            "mode": run.mode, "host": run.host, "model": run.model,
+            "skill_rev": run.skill_rev, "context_ref": run.context_ref,
+            "status": run.status or "open", "evidence": run.evidence or {},
+            "created_at": run.created_at.isoformat() if run.created_at else None,
+            "findings": findings,
+        }
 
     def record_finding(self, **kw) -> ReviewFinding:
         run_id = kw.get("run_id")

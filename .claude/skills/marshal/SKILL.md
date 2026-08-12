@@ -61,6 +61,7 @@ description: Use when reviewing a change before merge — runs the Marshal quali
 4. 按 `review_dimensions` 调 `/code-review ultra`(高危全视角)做对抗式 review,默认怀疑。
    若 classify 返回 `security_hazards`(否定性属性,如机密性),把每条 `prompt` 注入
    security lens —— 这类洞**不变量门禁抓不到**(往返测试在脆弱构造上为绿),只能靠 review。
+   在派发前执行 `review-run-open` 保存 run_id；在聚合和外部检查结束后执行 `review-run-close`，将所有步骤、lens、命令、测试和外部扫描状态写入 evidence manifest。任何不可用或未返回项都必须关闭为 `degraded`，并在最终报告引用 run_id。
 5. 汇总 `GateDecision`:任一不变量 fail→block;高危+确认高severity发现→escalate;跑不起来/超预算→escalate+degraded;否则 pass。
 6. `cli gate-record` 落库;有 PR# 且用户要 → 贴 PR 评论;终端打印摘要。
 7. 若在已合并代码上确认高severity发现 → 提议转流 C。
@@ -83,6 +84,10 @@ description: Use when reviewing a change before merge — runs the Marshal quali
 4. `cli ratchet-close --escape-id <id> --spawned-check <inv-id> --inv-json '<InvariantDef字段>'`。
    (spawned_check 为空 CLI 会拒绝 — 这是棘轮纪律,不要绕过。)
 5. 提示去 `<repo>` 把这条 proptest 真正实现;可顺手起草测试骨架。
+
+## 证据清单（Codex/Claude 共用）
+
+每次审计都应在 `review-run-open` 后记录一个可复核的 evidence manifest，并在审计结束时用 `review-run-close` 关闭。manifest 记录 head/base/tree、工作区与工具链、closure/scout/prove/invariant 状态、预定与实际返回的 lenses、命令/测试计数和日志引用、外部扫描状态；`review-run-show` 用于回读和横向比较。`complete` 不是“没有发现”：只有所有预定步骤、lenses、命令和外部扫描都完成时才允许使用；不可用资源必须标为 `degraded`/`unavailable` 并说明原因，不能把“扫描不可用”写成零 findings。
 
 ## 铁律
 

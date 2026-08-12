@@ -90,6 +90,8 @@ python -m marshal_core.cli <command> [options]
 | `review-quorum --findings-json ...` | Aggregate multi-perspective review findings — low-confidence noise is dropped, high-severity conclusions are escalated |
 | `review-verify --votes-json ...` | Adjudicate each finding with a skeptic vote; with `--run-id` (+ optional `--findings-json`), also record each finding's adjudication chain into the review trace |
 | `review-run-open --change-ref ... --host ... --model ...` | Open a review-trace run: record who (host/model/skill git rev) reviewed what; returns the `run_id` to pass to `review-verify` |
+| `review-run-close --run-id ... --status complete\|degraded --evidence-json ...` | Close a trace with a reproducible evidence manifest; `complete` is rejected while a lens, command, or external scan is unresolved |
+| `review-run-show --run-id ...` | Read back the run provenance, evidence manifest, and finding-level adjudication chain |
 | `finding-verdict --finding-id ... --verdict accepted\|rejected\|modified` | Record the human's final verdict on a traced finding — the ground-truth label |
 | `spec-source --ref CIP-3` | Resolve a spec reference to its location in the domain source |
 | `spec-requirements --ref CIP-3 --spec-root <repo>` | Extract RFC2119 requirements from the spec text |
@@ -191,6 +193,28 @@ The knowledge-core tables are created automatically on startup. For a durable
 store, point `MARSHAL_DB` at any SQLAlchemy URL (e.g.
 `postgresql://user:pass@host/marshal`). Additive trace-schema migrations are
 applied automatically. Run it behind your usual reverse proxy / process manager.
+
+### Review evidence manifests
+
+Review traces are opened before the multi-lens review and closed afterwards. The
+close command records references rather than copying logs, so another reviewer
+can reproduce the exact scope and distinguish a completed check from a missing
+one:
+
+```bash
+run=$(python -m marshal_core.cli review-run-open \
+  --change-ref <head-sha> --repo node --mode deep --host codex --model <model> \
+  | jq -r .run_id)
+python -m marshal_core.cli review-run-close --run-id "$run" --status degraded \
+  --evidence-json "{\"head_sha\":\"<head-sha>\",\"base_sha\":\"<base-sha>\",\"steps\":{\"scout\":{\"status\":\"degraded\",\"reason\":\"agent stalled\"}},\"external_scans\":[{\"name\":\"almanax\",\"status\":\"unavailable\",\"reason\":\"quota reached\"}]}"
+```
+
+The manifest should include commit/tree identifiers, closure/scout/prove and
+invariant statuses, expected/returned/missing lenses, command/test counts with
+log references, and external-scan status. An external scan with
+`status=complete` must provide an integer `findings` count. For
+`unavailable`/`degraded` scans, omit `findings` (or use null): unavailable is
+not the same as zero findings. Use `review-run-show` to compare two reports.
 
 Planned event context is persisted in the knowledge core, while the in-memory
 cache is only a fast path. `/plan` and `/results` can therefore use different
