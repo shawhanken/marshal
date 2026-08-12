@@ -1,6 +1,6 @@
 """知识核持久模型 — schema 领域无关 (domain/severity 取值由领域包定义)。"""
 from datetime import datetime, timezone
-from sqlalchemy import String, Integer, JSON, DateTime, Boolean, Float, inspect, text
+from sqlalchemy import String, Integer, JSON, DateTime, Boolean, Float, UniqueConstraint, inspect, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -40,6 +40,11 @@ def ensure_schema(engine) -> None:
         if "review_run" in inspector.get_table_names():
             conn.execute(text(
                 "CREATE INDEX IF NOT EXISTS ix_review_run_status ON review_run (status)"
+            ))
+        if "review_finding" in inspector.get_table_names():
+            conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_review_finding_run_key "
+                "ON review_finding (run_id, key)"
             ))
 
 
@@ -136,6 +141,7 @@ class ReviewFinding(Base):
     是唯一的金标注 (accepted|rejected|modified), 由 finding-verdict 命令事后补录;
     空串 = 未终审, 不预填。"""
     __tablename__ = "review_finding"
+    __table_args__ = (UniqueConstraint("run_id", "key", name="uq_review_finding_run_key"),)
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     run_id: Mapped[int] = mapped_column(Integer, index=True)
     key: Mapped[str] = mapped_column(String, index=True)

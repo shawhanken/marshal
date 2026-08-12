@@ -44,7 +44,7 @@ tier 定**基集**(有序前缀):
 
    （⑧ review trace，默认启用）审前 `review-run-open --change-ref <sha> --repo <repo> --mode regular|deep --host claude --model <模型id>` 拿 `run_id`;上面 `review-verify` 追加 `--run-id <id> --findings-json '[{key,title,claim,location,lens},…]'` 即把每条发现的裁决链落库;用户终审后 `finding-verdict --finding-id <id> --verdict accepted|rejected|modified` 补录金标注。不带 `--run-id` 行为不变。
    审计完成后用 `review-run-close --run-id <id> --status complete|degraded --evidence-json <manifest>` 关闭 trace，并用 `review-run-show --run-id <id>` 回读。manifest 至少记录 head/base/tree、closure/scout/prove/invariant 状态、expected/returned/missing lenses、命令与测试计数/log_ref、外部扫描状态。
-   `complete` 只允许所有步骤、命令、预定 lens 和外部扫描都已完成；缺失 lens、失败或不可用资源必须 `degraded`。外部扫描 `unavailable`/`degraded` 时省略 `findings`（或置 null），绝不能写成 `findings: 0`；只有实际完成的扫描才可记录整数 findings。
+   `complete` 只允许所有步骤、命令、预定 lens 和外部扫描都已完成；缺失 lens、失败或不可用资源必须 `degraded`。外部扫描 `unavailable`/`degraded` 时省略 `findings`（或置 null），绝不能写成 `findings: 0`；只有实际完成的扫描才可记录整数 findings。 complete 还必须严格包含 closure/scout/prove/invariant 四阶段；head_sha 与 change_ref 一致；命令须有 argv、exit_code、log_ref 且 pass 不得携带失败退出或失败测试；关闭后不得重新写入。
 4. 最终汇入流 A 第 5 步:用 `review-verify` 的 `verdict` 与 `survived`(`killed` 不再上报,但**误报回流改进对应视角 prompt**,误报≠逃逸不进棘轮)。
 5. 也可叠加 `/code-review ultra`(云端多 agent)作为额外一路视角喂进 quorum;它需人触发/计费,**skill 自己拉不起**——拉不到就少一路并**显式标 degraded**,绝不假装跑过。
 - 如存活的高 severity 发现落在**已合并代码**,提议转流 C(棘轮)。

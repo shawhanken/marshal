@@ -87,7 +87,7 @@ description: Use when reviewing a change before merge — runs the Marshal quali
 
 ## 证据清单（Codex/Claude 共用）
 
-每次审计都应在 `review-run-open` 后记录一个可复核的 evidence manifest，并在审计结束时用 `review-run-close` 关闭。manifest 记录 head/base/tree、工作区与工具链、closure/scout/prove/invariant 状态、预定与实际返回的 lenses、命令/测试计数和日志引用、外部扫描状态；`review-run-show` 用于回读和横向比较。`complete` 不是“没有发现”：只有所有预定步骤、lenses、命令和外部扫描都完成时才允许使用；不可用资源必须标为 `degraded`/`unavailable` 并说明原因，不能把“扫描不可用”写成零 findings。
+每次审计都应在 `review-run-open` 后记录一个可复核的 evidence manifest，并在审计结束时用 `review-run-close` 关闭。manifest 记录 head/base/tree、工作区与工具链、closure/scout/prove/invariant 状态、预定与实际返回的 lenses、命令/测试计数和日志引用、外部扫描状态；`review-run-show` 用于回读和横向比较。`complete` 不是“没有发现”：只有所有预定步骤、lenses、命令和外部扫描都完成时才允许使用；不可用资源必须标为 `degraded`/`unavailable` 并说明原因，不能把“扫描不可用”写成零 findings。 关闭后的 run 是终态；evidence 的 head_sha 必须绑定 change_ref，且不得再覆盖 evidence 或 finding。complete 必须包含 closure/scout/prove/invariant 四个阶段、完整 lens 分区、带 argv/exit_code/log_ref 的命令记录和至少一条外部扫描记录。
 
 ## 铁律
 

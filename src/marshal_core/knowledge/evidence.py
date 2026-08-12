@@ -13,6 +13,7 @@ REVIEW_RUN_STATUSES = {"open", "complete", "degraded"}
 STEP_STATUSES = {"complete", "degraded", "unavailable", "not_run", "failed"}
 COMMAND_STATUSES = {"pass", "fail", "degraded", "unavailable", "not_run"}
 EXTERNAL_STATUSES = {"complete", "degraded", "unavailable", "not_run"}
+REQUIRED_STEPS = {"closure", "scout", "prove", "invariant"}
 
 
 def _require_string(value, field: str, *, non_empty: bool = False) -> None:
@@ -40,12 +41,14 @@ def _validate_status_map(value, field: str, allowed: set[str]) -> None:
             raise ValueError(
                 f"evidence {field}.{name}.status must be one of {sorted(allowed)}"
             )
+        if status != "complete":
+            _require_string(item.get("reason"), f"{field}.{name}.reason", non_empty=True)
         for optional in ("evidence_ref", "reason"):
             if optional in item and item[optional] is not None:
                 _require_string(item[optional], f"{field}.{name}.{optional}")
 
 
-def _validate_commands(commands) -> None:
+def _validate_commands(commands, *, complete: bool = False) -> None:
     if not isinstance(commands, list):
         raise ValueError("evidence commands must be a list")
     for index, command in enumerate(commands):
@@ -59,10 +62,19 @@ def _validate_commands(commands) -> None:
             )
         if "argv" in command:
             _validate_string_list(command["argv"], f"{field}.argv")
+        if complete:
+            for required in ("argv", "exit_code", "log_ref"):
+                if required not in command:
+                    raise ValueError(f"evidence {field}.{required} is required for complete status")
+            if not command["argv"]:
+                raise ValueError(f"evidence {field}.argv must not be empty for complete status")
+            _require_string(command["log_ref"], f"{field}.log_ref", non_empty=True)
         if "exit_code" in command and command["exit_code"] is not None:
             if (isinstance(command["exit_code"], bool)
                     or not isinstance(command["exit_code"], int)):
                 raise ValueError(f"evidence {field}.exit_code must be an integer")
+        if command.get("status") == "pass" and command.get("exit_code") not in (None, 0):
+            raise ValueError(f"evidence {field} cannot be pass with a non-zero exit_code")
         if "log_ref" in command and command["log_ref"] is not None:
             _require_string(command["log_ref"], f"{field}.log_ref")
         tests = command.get("tests")
@@ -77,16 +89,26 @@ def _validate_commands(commands) -> None:
                     raise ValueError(
                         f"evidence {field}.tests.{name} must be a non-negative integer"
                     )
+            if command.get("status") == "pass" and tests.get("failed", 0) != 0:
+                raise ValueError(f"evidence {field} cannot be pass with failed tests")
+    if complete and not commands:
+        raise ValueError("evidence commands must contain at least one command for complete status")
 
 
 def _validate_external_scans(scans) -> None:
     if not isinstance(scans, list):
         raise ValueError("evidence external_scans must be a list")
+    if not scans:
+        raise ValueError("evidence external_scans must contain at least one scan")
+    names = set()
     for index, scan in enumerate(scans):
         field = f"external_scans[{index}]"
         if not isinstance(scan, dict):
             raise ValueError(f"evidence {field} must be an object")
         _require_string(scan.get("name"), f"{field}.name", non_empty=True)
+        if scan["name"] in names:
+            raise ValueError(f"evidence {field}.name is duplicated")
+        names.add(scan["name"])
         status = scan.get("status")
         if status not in EXTERNAL_STATUSES:
             raise ValueError(
@@ -111,7 +133,7 @@ def _validate_external_scans(scans) -> None:
                 _require_string(scan[optional], f"{field}.{optional}")
 
 
-def validate_review_evidence(evidence: object) -> dict:
+def validate_review_evidence(evidence: object, *, complete: bool = False) -> dict:
     """Validate and copy a review evidence manifest.
 
     Unknown top-level fields are retained so callers can add harmless metadata,
@@ -132,6 +154,8 @@ def validate_review_evidence(evidence: object) -> dict:
         for field in ("expected", "returned", "missing"):
             if field in lenses:
                 _validate_string_list(lenses[field], f"lenses.{field}")
+                if len(lenses[field]) != len(set(lenses[field])):
+                    raise ValueError(f"evidence lenses.{field} must not contain duplicates")
         returned = set(lenses.get("returned", []))
         missing = set(lenses.get("missing", []))
         if returned & missing:
@@ -139,11 +163,31 @@ def validate_review_evidence(evidence: object) -> dict:
                 "evidence lenses cannot list a lens as both returned and missing"
             )
     if "commands" in out:
-        _validate_commands(out["commands"])
+        _validate_commands(out["commands"], complete=complete)
     if "external_scans" in out:
         _validate_external_scans(out["external_scans"])
     if "notes" in out:
         _validate_string_list(out["notes"], "notes")
+    if complete:
+        for field in ("head_sha", "base_sha", "tree_sha"):
+            _require_string(out.get(field), field, non_empty=True)
+        steps = out.get("steps")
+        if not isinstance(steps, dict) or set(steps) != REQUIRED_STEPS:
+            raise ValueError(
+                "complete evidence steps must contain exactly "
+                + ", ".join(sorted(REQUIRED_STEPS))
+            )
+        lenses = out.get("lenses")
+        if not isinstance(lenses, dict):
+            raise ValueError("complete evidence lenses are required")
+        for field in ("expected", "returned", "missing"):
+            if field not in lenses:
+                raise ValueError(f"complete evidence lenses.{field} is required")
+        expected = set(lenses["expected"])
+        returned = set(lenses["returned"])
+        missing = set(lenses["missing"])
+        if not expected or returned | missing != expected or returned & missing:
+            raise ValueError("complete evidence lenses must partition expected lenses")
     return out
 
 

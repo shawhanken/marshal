@@ -318,7 +318,8 @@ def cmd_review_verify(a) -> int:
 
 
 def _detect_skill_rev() -> str:
-    # prompt-as-program: record the full checkout revision and flag dirty skill files.
+    # prompt-as-program: record the full checkout revision and flag tracked or
+    # untracked skill files as dirty provenance.
     root = Path(__file__).resolve().parents[2]
     try:
         rev = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"],
@@ -326,10 +327,11 @@ def _detect_skill_rev() -> str:
         if rev.returncode != 0 or not rev.stdout.strip():
             return ""
         dirty = subprocess.run(
-            ["git", "-C", str(root), "diff", "--quiet", "HEAD", "--",
+            ["git", "-C", str(root), "status", "--porcelain",
+             "--untracked-files=all", "--",
              ".agents/skills/marshal", ".claude/skills/marshal"],
             capture_output=True, text=True, timeout=10)
-        suffix = "-dirty" if dirty.returncode != 0 else ""
+        suffix = "-dirty" if dirty.stdout else ""
         return rev.stdout.strip() + suffix
     except Exception:
         return ""

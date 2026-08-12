@@ -215,6 +215,7 @@ log references, and external-scan status. An external scan with
 `status=complete` must provide an integer `findings` count. For
 `unavailable`/`degraded` scans, omit `findings` (or use null): unavailable is
 not the same as zero findings. Use `review-run-show` to compare two reports.
+A closed run is terminal: its head SHA must match the run change_ref, and its evidence and findings cannot be overwritten afterwards. Complete manifests must contain exactly closure/scout/prove/invariant stages, a partitioned expected/returned/missing lens set, executable command metadata with a zero exit status, and at least one external-scan record.
 
 Planned event context is persisted in the knowledge core, while the in-memory
 cache is only a fast path. `/plan` and `/results` can therefore use different

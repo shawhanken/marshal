@@ -175,16 +175,31 @@ class Store:
         run = self.s.get(ReviewRun, run_id)
         if run is None:
             raise ValueError(f"review run not found: {run_id}")
-        manifest = validate_review_evidence(evidence)
-        if status == "complete":
-            required = ("head_sha", "base_sha", "tree_sha", "steps", "lenses",
-                        "commands", "external_scans")
-            missing = [field for field in required if field not in manifest]
-            if missing:
-                raise ValueError(
-                    "complete review evidence is missing required sections: "
-                    + ", ".join(missing)
-                )
+        if (run.status or "open") != "open":
+            raise ValueError(f"review run {run_id} is already closed")
+        if not isinstance(evidence, dict):
+            raise ValueError("review evidence must be a JSON object")
+        required = ("head_sha", "base_sha", "tree_sha", "steps", "lenses",
+                    "commands", "external_scans")
+        missing = [field for field in required if field not in evidence]
+        if missing:
+            raise ValueError("review evidence is missing required sections: " + ", ".join(missing))
+        manifest = validate_review_evidence(evidence, complete=status == "complete")
+        for field in ("head_sha", "base_sha", "tree_sha"):
+            if not isinstance(manifest[field], str) or not manifest[field].strip():
+                raise ValueError(f"review evidence {field} must be a non-empty string")
+        if not isinstance(manifest["steps"], dict) or not manifest["steps"]:
+            raise ValueError("review evidence steps must not be empty")
+        if not isinstance(manifest["lenses"], dict):
+            raise ValueError("review evidence lenses must be an object")
+        if not all(field in manifest["lenses"] for field in ("expected", "returned", "missing")):
+            raise ValueError("review evidence lenses must include expected, returned, and missing")
+        if not manifest["commands"]:
+            raise ValueError("review evidence commands must not be empty")
+        if manifest["head_sha"] != run.change_ref:
+            raise ValueError(
+                "review evidence head_sha must match the review run change_ref"
+            )
         if status == "complete" and evidence_has_unresolved(manifest):
             raise ValueError(
                 "cannot mark review run complete while evidence contains unresolved "
@@ -219,11 +234,20 @@ class Store:
             "findings": findings,
         }
 
+    def _require_open_review_run(self, run_id: int) -> ReviewRun:
+        run = self.s.get(ReviewRun, run_id)
+        if run is None:
+            raise ValueError(f"review run not found: {run_id!r}")
+        if (run.status or "open") != "open":
+            raise ValueError(f"review run {run_id} is already closed")
+        return run
+
     def record_finding(self, **kw) -> ReviewFinding:
         run_id = kw.get("run_id")
         key = kw.get("key")
-        if not isinstance(run_id, int) or self.s.get(ReviewRun, run_id) is None:
+        if not isinstance(run_id, int):
             raise ValueError(f"review run not found: {run_id!r}")
+        self._require_open_review_run(run_id)
         if not isinstance(key, str) or not key:
             raise ValueError("review finding key must be non-empty")
         existing = self.s.scalar(select(ReviewFinding).where(
@@ -247,8 +271,9 @@ class Store:
         if len(run_ids) != 1:
             raise ValueError("all findings in a batch must use one review run")
         run_id = next(iter(run_ids))
-        if not isinstance(run_id, int) or self.s.get(ReviewRun, run_id) is None:
+        if not isinstance(run_id, int):
             raise ValueError(f"review run not found: {run_id!r}")
+        self._require_open_review_run(run_id)
         keys = [item.get("key") for item in findings]
         if any(not isinstance(key, str) or not key for key in keys):
             raise ValueError("review finding keys must be non-empty")
@@ -270,7 +295,7 @@ class Store:
         return saved
 
     def list_findings(self, run_id: int) -> list[ReviewFinding]:
-        stmt = select(ReviewFinding).where(ReviewFinding.run_id == run_id)
+        stmt = select(ReviewFinding).where(ReviewFinding.run_id == run_id).order_by(ReviewFinding.id)
         return list(self.s.scalars(stmt))
 
     def set_human_verdict(self, finding_id: int, verdict: str,
