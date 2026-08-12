@@ -39,4 +39,4 @@ class GateDecision(BaseModel):
 
 class PlanResponse(BaseModel):
     job_id: str
-    invariants: list[dict] = []   # [{invariant_id, run_command}]
+    invariants: list[dict] = []   # [{invariant_id, run_command, location_repo, executor_kind}]

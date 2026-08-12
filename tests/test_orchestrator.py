@@ -32,8 +32,8 @@ def test_handle_result_records_gate_run(db_session):
                          diff_paths=["docs/x.md"])
     job = orch.handle_event(ev)
     res = StructuredResult(job_id=job.job_id, kind="invariant", status="ok",
-        payload={"results": [{"invariant_id": "econ.fee_conservation",
-                              "passed": True, "detail": ""}]})
+        payload={"results": [{"invariant_id": i, "passed": True, "detail": ""}
+                             for i in job.params["invariant_ids"]]})
     decision = orch.handle_result(ev, res)
     assert decision.verdict == "pass"
     from marshal_core.knowledge.models import GateRun

@@ -7,6 +7,7 @@ from contextlib import contextmanager
 import difflib
 import json
 import os
+import subprocess
 import sys
 import tomllib
 import uuid
@@ -282,7 +283,68 @@ def cmd_review_quorum(a) -> int:
 
 def cmd_review_verify(a) -> int:
     # ③ 对抗式验证二段: 按 skeptic 投票裁决每条发现 (default-to-refute)。
-    return _emit(verify_findings(json.loads(a.votes_json)))
+    # --run-id: ⑧ 顺手把每条发现的裁决链落 review trace (不带则行为不变, 纯函数)。
+    items = json.loads(a.votes_json)
+    out = verify_findings(items)
+    if a.run_id is not None:
+        details = ({d["key"]: d for d in json.loads(a.findings_json)}
+                   if a.findings_json else {})
+        bucket = {row["key"]: name
+                  for name in ("survived", "killed", "unverified")
+                  for row in out[name]}
+        s = _session()
+        try:
+            store = Store(s)
+            for it in items:
+                key = it.get("key") or ""
+                d = details.get(key, {})
+                store.record_finding(
+                    run_id=a.run_id, key=key,
+                    severity=it.get("severity", ""),
+                    votes=it.get("votes", []) or [],
+                    quorum_verdict=bucket.get(key, ""),
+                    title=d.get("title", ""), claim=d.get("claim", ""),
+                    location=d.get("location", ""), lens=d.get("lens", ""))
+        finally:
+            s.close()
+    return _emit(out)
+
+
+def _detect_skill_rev() -> str:
+    # prompt-as-program: the marshal checkout's git rev IS the prompt version.
+    root = Path(__file__).resolve().parents[2]
+    try:
+        out = subprocess.run(["git", "-C", str(root), "rev-parse", "--short", "HEAD"],
+                             capture_output=True, text=True, timeout=10)
+        return out.stdout.strip() if out.returncode == 0 else ""
+    except Exception:
+        return ""
+
+
+def cmd_review_run_open(a) -> int:
+    # ⑧ 开一次 review trace run: 落 provenance, 返回 run_id 供后续 review-verify 关联。
+    skill_rev = a.skill_rev or _detect_skill_rev()
+    s = _session()
+    try:
+        run = Store(s).open_review_run(
+            change_ref=a.change_ref, repo=a.repo, mode=a.mode,
+            host=a.host, model=a.model, skill_rev=skill_rev,
+            context_ref=a.context_ref)
+        return _emit({"run_id": run.id, "skill_rev": skill_rev})
+    finally:
+        s.close()
+
+
+def cmd_finding_verdict(a) -> int:
+    # ⑧ 人类终审补录 — trace 数据的金标注出口。
+    s = _session()
+    try:
+        f = Store(s).set_human_verdict(a.finding_id, a.verdict, a.note)
+        return _emit({"finding_id": f.id, "human_verdict": f.human_verdict})
+    except ValueError as e:
+        return _fail(str(e))
+    finally:
+        s.close()
 
 
 def cmd_refute_lenses(a) -> int:
@@ -411,7 +473,7 @@ def cmd_ratchet_open(a) -> int:
     try:
         esc = Store(s).open_escape(
             id=a.escape_id, description=a.desc, root_cause_class=a.root_cause,
-            change_ref=a.change_ref)
+            change_ref=a.change_ref, missed_by_run_id=a.missed_by_run)
         return _emit({"escape_id": esc.id})
     finally:
         s.close()
@@ -432,7 +494,8 @@ def cmd_ratchet_close(a) -> int:
     try:
         store = Store(s)
         store.register_invariant(**inv, origin="ratchet", escape_id=a.escape_id)
-        store.close_escape(a.escape_id, spawned_check=a.spawned_check)
+        store.close_escape(a.escape_id, spawned_check=a.spawned_check,
+                           fix_ref=a.fix_ref)
         return _emit({"ok": True, "escape_id": a.escape_id,
                       "spawned_check": a.spawned_check})
     finally:
@@ -784,7 +847,26 @@ def build_parser() -> argparse.ArgumentParser:
 
     rv = sub.add_parser("review-verify")
     rv.add_argument("--votes-json", dest="votes_json", required=True)
+    rv.add_argument("--run-id", dest="run_id", type=int, default=None)
+    rv.add_argument("--findings-json", dest="findings_json", default="")
     rv.set_defaults(func=cmd_review_verify)
+
+    rro = sub.add_parser("review-run-open")
+    rro.add_argument("--change-ref", dest="change_ref", required=True)
+    rro.add_argument("--repo", default="")
+    rro.add_argument("--mode", default="regular", choices=["regular", "deep"])
+    rro.add_argument("--host", default="")
+    rro.add_argument("--model", default="")
+    rro.add_argument("--skill-rev", dest="skill_rev", default="")
+    rro.add_argument("--context-ref", dest="context_ref", default="")
+    rro.set_defaults(func=cmd_review_run_open)
+
+    fv = sub.add_parser("finding-verdict")
+    fv.add_argument("--finding-id", dest="finding_id", type=int, required=True)
+    fv.add_argument("--verdict", required=True,
+                    choices=["accepted", "rejected", "modified"])
+    fv.add_argument("--note", default="")
+    fv.set_defaults(func=cmd_finding_verdict)
 
     rl = sub.add_parser("refute-lenses")
     rl.add_argument("--count", type=int, required=True)
@@ -827,12 +909,16 @@ def build_parser() -> argparse.ArgumentParser:
     ro.add_argument("--desc", required=True)
     ro.add_argument("--root-cause", dest="root_cause", default="")
     ro.add_argument("--change-ref", dest="change_ref", default=None)
+    ro.add_argument("--missed-by-run", dest="missed_by_run", type=int, default=None,
+                    help="review_run id that reviewed this change but missed the bug")
     ro.set_defaults(func=cmd_ratchet_open)
 
     rc = sub.add_parser("ratchet-close")
     rc.add_argument("--escape-id", dest="escape_id", required=True)
     rc.add_argument("--spawned-check", dest="spawned_check", default="")
     rc.add_argument("--inv-json", dest="inv_json", required=True)
+    rc.add_argument("--fix-ref", dest="fix_ref", default=None,
+                    help="commit that fixed the escaped bug")
     rc.set_defaults(func=cmd_ratchet_close)
 
     gr = sub.add_parser("gate-record")

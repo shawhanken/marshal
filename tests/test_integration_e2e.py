@@ -69,3 +69,12 @@ def test_webhook_refuses_when_files_api_unreachable(client, monkeypatch):
     monkeypatch.setattr(api.httpx, "get", _boom)
     r = client.post("/webhook", json=_webhook_payload())
     assert r.status_code == 502          # 拿不到改动文件 → 拒绝出结论, 不按空 diff 硬算
+
+
+def test_results_for_unknown_job_rejected(client):
+    result = {
+        "job_id": "inv-never-planned", "schema_version": "1", "kind": "invariant",
+        "payload": {"results": []}, "cost": 0.0, "status": "ok",
+    }
+    r = client.post("/results", json=result)
+    assert r.status_code == 404

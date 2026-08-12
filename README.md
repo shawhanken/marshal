@@ -88,7 +88,9 @@ python -m marshal_core.cli <command> [options]
 | `ci-scan --paths .github/workflows/ci.yml` | Audit GitHub Actions workflows with `zizmor`; degrades to an `escalate` signal when the tool is missing |
 | `invariants --repo node --paths ...` | List the invariants that apply to this change, with their runnable commands |
 | `review-quorum --findings-json ...` | Aggregate multi-perspective review findings — low-confidence noise is dropped, high-severity conclusions are escalated |
-| `review-verify --votes-json ...` | Adjudicate each finding with a skeptic vote |
+| `review-verify --votes-json ...` | Adjudicate each finding with a skeptic vote; with `--run-id` (+ optional `--findings-json`), also record each finding's adjudication chain into the review trace |
+| `review-run-open --change-ref ... --host ... --model ...` | Open a review-trace run: record who (host/model/skill git rev) reviewed what; returns the `run_id` to pass to `review-verify` |
+| `finding-verdict --finding-id ... --verdict accepted\|rejected\|modified` | Record the human's final verdict on a traced finding — the ground-truth label |
 | `spec-source --ref CIP-3` | Resolve a spec reference to its location in the domain source |
 | `spec-requirements --ref CIP-3 --spec-root <repo>` | Extract RFC2119 requirements from the spec text |
 | `conformance [--spec-root <repo>]` | Emit the spec-to-invariant coverage matrix; with a spec root, report CIP coverage and gaps |
@@ -194,6 +196,15 @@ process manager.
 > correlate `/plan` with the later `/results`. Multiple workers would not share
 > that cache, so keep it to one uvicorn worker (scale by fronting several
 > single-worker instances only if each repo maps to one instance).
+
+> ⚠️ **Do not expose the brain to the public internet.** The service currently
+> has **no authentication**: `/webhook` does not verify GitHub's
+> `X-Hub-Signature-256` webhook signature, and `/plan` / `/results` accept any
+> caller. Because the CI reporter executes the commands the brain returns,
+> anyone who can reach (or impersonate) the brain can run arbitrary commands on
+> your CI runners. Deploy it only on a trusted internal network, reachable
+> exclusively by your GitHub webhook forwarder and your own CI, until
+> authentication lands.
 
 ### 2. The GitHub Action (managed repos)
 

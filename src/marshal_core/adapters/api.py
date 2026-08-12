@@ -71,8 +71,11 @@ async def plan(event: NormalizedEvent):
 @app.post("/results")
 async def results(result: StructuredResult):
     change_ref = result.job_id.removeprefix("inv-")
-    ev = _EVENTS.get(change_ref) or NormalizedEvent(
-        kind="pr", repo="node", change_ref=change_ref)
+    ev = _EVENTS.get(change_ref)
+    if ev is None:
+        raise HTTPException(status_code=404, detail=(
+            f"unknown job_id {result.job_id!r}: no matching plan; "
+            "submit the change via /webhook or /plan first"))
     with _Session() as s:
         decision = Orchestrator(_PACK, Store(s)).handle_result(ev, result)
     check_run = build_check_run(decision, shadow=True)

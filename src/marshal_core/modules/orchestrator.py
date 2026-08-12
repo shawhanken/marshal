@@ -41,6 +41,8 @@ class Orchestrator:
         invs = self.pack.list_invariants(event_scope(event))
         return PlanResponse(
             job_id=job.job_id,
-            invariants=[{"invariant_id": i.id, "run_command": i.run_command}
+            invariants=[{"invariant_id": i.id, "run_command": i.run_command,
+                         "location_repo": i.location_repo,
+                         "executor_kind": i.executor_kind}
                         for i in invs],
         )

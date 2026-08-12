@@ -45,3 +45,105 @@ def test_degraded_result_high_tier_escalate():
                            payload={"results": []})
     decision = gate.evaluate(ev, job, res)
     assert decision.verdict == "escalate"
+
+
+def _low_tier_event():
+    return NormalizedEvent(kind="pr", repo="node", change_ref="low456",
+                           diff_paths=["README.md"])
+
+
+def _all_pass_results(invariant_ids):
+    return [{"invariant_id": i, "passed": True, "detail": ""} for i in invariant_ids]
+
+
+def test_degraded_result_low_tier_escalates_not_pass():
+    gate = InvariantGate(pack=CowboyPack())
+    ev = _low_tier_event()
+    job = gate.build_dispatch(ev)
+    res = StructuredResult(job_id=job.job_id, kind="invariant", status="error",
+                           payload={"results": []})
+    decision = gate.evaluate(ev, job, res)
+    assert decision.verdict == "escalate"
+    assert decision.gates[0]["outcome"] == "degraded"
+
+
+def test_empty_results_with_expected_invariants_escalates():
+    gate = InvariantGate(pack=CowboyPack())
+    ev = _event()
+    job = gate.build_dispatch(ev)
+    assert job.params["invariant_ids"]      # precondition: plan expects invariants
+    res = StructuredResult(job_id=job.job_id, kind="invariant", status="ok",
+                           payload={"results": []})
+    decision = gate.evaluate(ev, job, res)
+    assert decision.verdict == "escalate"
+    assert decision.gates[0]["outcome"] == "degraded"
+
+
+def test_missing_invariant_result_escalates():
+    gate = InvariantGate(pack=CowboyPack())
+    ev = _event()
+    job = gate.build_dispatch(ev)
+    partial = _all_pass_results(job.params["invariant_ids"][:-1])
+    res = StructuredResult(job_id=job.job_id, kind="invariant", status="ok",
+                           payload={"results": partial})
+    decision = gate.evaluate(ev, job, res)
+    assert decision.verdict == "escalate"
+    assert decision.gates[0]["outcome"] == "degraded"
+
+
+def test_unknown_invariant_id_escalates():
+    gate = InvariantGate(pack=CowboyPack())
+    ev = _event()
+    job = gate.build_dispatch(ev)
+    padded = _all_pass_results(job.params["invariant_ids"] + ["not.a.real.invariant"])
+    res = StructuredResult(job_id=job.job_id, kind="invariant", status="ok",
+                           payload={"results": padded})
+    decision = gate.evaluate(ev, job, res)
+    assert decision.verdict == "escalate"
+    assert decision.gates[0]["outcome"] == "degraded"
+
+
+def test_duplicate_invariant_results_escalate():
+    gate = InvariantGate(pack=CowboyPack())
+    ev = _event()
+    job = gate.build_dispatch(ev)
+    doubled = _all_pass_results(job.params["invariant_ids"]) \
+        + _all_pass_results(job.params["invariant_ids"][:1])
+    res = StructuredResult(job_id=job.job_id, kind="invariant", status="ok",
+                           payload={"results": doubled})
+    decision = gate.evaluate(ev, job, res)
+    assert decision.verdict == "escalate"
+    assert decision.gates[0]["outcome"] == "degraded"
+
+
+def test_job_id_mismatch_escalates():
+    gate = InvariantGate(pack=CowboyPack())
+    ev = _event()
+    job = gate.build_dispatch(ev)
+    res = StructuredResult(job_id="inv-someone-else", kind="invariant", status="ok",
+        payload={"results": _all_pass_results(job.params["invariant_ids"])})
+    decision = gate.evaluate(ev, job, res)
+    assert decision.verdict == "escalate"
+    assert decision.gates[0]["outcome"] == "degraded"
+
+
+def test_kind_mismatch_escalates():
+    gate = InvariantGate(pack=CowboyPack())
+    ev = _event()
+    job = gate.build_dispatch(ev)
+    res = StructuredResult(job_id=job.job_id, kind="review", status="ok",
+        payload={"results": _all_pass_results(job.params["invariant_ids"])})
+    decision = gate.evaluate(ev, job, res)
+    assert decision.verdict == "escalate"
+    assert decision.gates[0]["outcome"] == "degraded"
+
+
+def test_confirmed_failure_still_blocks_even_if_incomplete():
+    gate = InvariantGate(pack=CowboyPack())
+    ev = _event()
+    job = gate.build_dispatch(ev)
+    res = StructuredResult(job_id=job.job_id, kind="invariant", status="ok",
+        payload={"results": [{"invariant_id": job.params["invariant_ids"][0],
+                              "passed": False, "detail": "assert failed"}]})
+    decision = gate.evaluate(ev, job, res)
+    assert decision.verdict == "block"
