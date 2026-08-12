@@ -189,13 +189,14 @@ MARSHAL_DB="sqlite:///$(pwd)/marshal.db" \
 
 The knowledge-core tables are created automatically on startup. For a durable
 store, point `MARSHAL_DB` at any SQLAlchemy URL (e.g.
-`postgresql://user:pass@host/marshal`). Run it behind your usual reverse proxy /
-process manager.
+`postgresql://user:pass@host/marshal`). Additive trace-schema migrations are
+applied automatically. Run it behind your usual reverse proxy / process manager.
 
-> **Run a single process.** The brain caches recent PR events in memory to
-> correlate `/plan` with the later `/results`. Multiple workers would not share
-> that cache, so keep it to one uvicorn worker (scale by fronting several
-> single-worker instances only if each repo maps to one instance).
+Planned event context is persisted in the knowledge core, while the in-memory
+cache is only a fast path. `/plan` and `/results` can therefore use different
+workers or survive a process restart when they share the same database. Use a
+transactional shared database for multi-worker deployments; SQLite remains
+best suited to a single brain process.
 
 > ⚠️ **Do not expose the brain to the public internet.** The service currently
 > has **no authentication**: `/webhook` does not verify GitHub's
@@ -226,7 +227,10 @@ jobs:
 
 - `base-ref` is optional; when omitted the action compares `HEAD~1...HEAD`.
 - The action computes the changed paths, then runs the bundled reporter, which
-  `POST`s to `{brain-url}/plan` and `{brain-url}/results`. The reporter uses only
+  `POST`s to `{brain-url}/plan` and `{brain-url}/results`. Plans must declare a
+  supported `executor_kind`; unknown or missing kinds are reported as `not_run`
+  instead of passing on exit code alone. Each command has a 600-second limit and
+  each reporter run has a 3600-second total limit. The reporter uses only
   the Python standard library, so the runner needs **Python 3 and network access
   to `brain-url`** — nothing to install.
 - It is shadow-safe: the returned check-run is informational and never blocks.

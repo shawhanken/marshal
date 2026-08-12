@@ -38,8 +38,8 @@ class _Proc:
 def test_reporter_runs_planned_invariants(monkeypatch):
     posted = {}
     _patch_brain(monkeypatch, [
-        {"invariant_id": "a", "run_command": ["true"], "location_repo": "node"},
-        {"invariant_id": "b", "run_command": ["false"], "location_repo": "node"},
+        {"invariant_id": "a", "run_command": ["true"], "location_repo": "node", "executor_kind": "command"},
+        {"invariant_id": "b", "run_command": ["false"], "location_repo": "node", "executor_kind": "command"},
     ], posted)
 
     def fake_run(argv, capture_output=True, text=True, timeout=None):
@@ -62,7 +62,7 @@ def test_cross_repo_invariant_is_not_run_and_degrades(monkeypatch):
     executed = []
     _patch_brain(monkeypatch, [
         {"invariant_id": "local.check", "run_command": ["true"],
-         "location_repo": "wallet"},
+         "location_repo": "wallet", "executor_kind": "command"},
         {"invariant_id": "contract.tx_encoding_roundtrip",
          "run_command": ["cargo", "test", "-p", "cowboy-types"],
          "location_repo": "node"},
@@ -138,7 +138,7 @@ def test_timeout_is_not_run_and_degrades(monkeypatch):
     posted = {}
     _patch_brain(monkeypatch, [
         {"invariant_id": "slow.check", "run_command": ["sleep", "9999"],
-         "location_repo": "node"},
+         "location_repo": "node", "executor_kind": "command"},
     ], posted)
 
     def fake_run(argv, capture_output=True, text=True, timeout=None):
@@ -151,3 +151,54 @@ def test_timeout_is_not_run_and_degrades(monkeypatch):
     assert body["status"] == "degraded"
     assert body["payload"]["not_run"][0]["invariant_id"] == "slow.check"
     assert "timed out" in body["payload"]["not_run"][0]["reason"]
+
+
+def test_unknown_executor_kind_is_not_run(monkeypatch):
+    posted = {}
+    _patch_brain(monkeypatch, [
+        {"invariant_id": "a", "run_command": ["cargo", "test", "nope"],
+         "location_repo": "node", "executor_kind": "typo"},
+    ], posted)
+    executed = []
+    monkeypatch.setattr(reporter.subprocess, "run",
+                        lambda *a, **kw: executed.append(a) or _Proc(returncode=0))
+    reporter.run(brain_url="http://brain", repo="node",
+                 change_ref="sha1", diff_paths=["x"])
+    assert executed == []
+    assert posted["body"]["status"] == "degraded"
+    assert "unsupported" in posted["body"]["payload"]["not_run"][0]["reason"]
+
+
+def test_malformed_plan_is_reported_degraded(monkeypatch):
+    posted = {}
+    def fake_urlopen(req, timeout=0):
+        url = req.full_url
+        if url.endswith("/plan"):
+            return _FakeResp({"job_id": "inv-sha1",
+                              "invariants": [{"invariant_id": "a",
+                                               "location_repo": "node"}]})
+        posted["body"] = json.loads(req.data.decode())
+        return _FakeResp({"verdict": "escalate"})
+    monkeypatch.setattr(reporter.urllib.request, "urlopen", fake_urlopen)
+    reporter.run(brain_url="http://brain", repo="node",
+                 change_ref="sha1", diff_paths=["x"])
+    assert posted["body"]["status"] == "degraded"
+    assert posted["body"]["payload"]["results"] == []
+    assert posted["body"]["payload"]["not_run"][0]["invariant_id"] == "a"
+
+
+def test_total_timeout_marks_remaining_invariants_not_run(monkeypatch):
+    posted = {}
+    _patch_brain(monkeypatch, [
+        {"invariant_id": "a", "run_command": ["true"], "location_repo": "node", "executor_kind": "command"},
+        {"invariant_id": "b", "run_command": ["true"], "location_repo": "node", "executor_kind": "command"},
+    ], posted)
+    monkeypatch.setattr(reporter, "_TOTAL_TIMEOUT_SEC", 0)
+    executed = []
+    monkeypatch.setattr(reporter.subprocess, "run",
+                        lambda *a, **kw: executed.append(a) or _Proc(returncode=0))
+    reporter.run(brain_url="http://brain", repo="node",
+                 change_ref="sha1", diff_paths=["x"])
+    assert executed == []
+    assert posted["body"]["status"] == "degraded"
+    assert {x["invariant_id"] for x in posted["body"]["payload"]["not_run"]} == {"a", "b"}

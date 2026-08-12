@@ -6,7 +6,7 @@ from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from ..knowledge.models import Base
+from ..knowledge.models import ensure_schema
 from ..knowledge.store import Store
 from ..concept.sync import derive_db
 from .budget import concept_budget
@@ -17,7 +17,7 @@ def isolated_store(concepts_dir: str, domain_pack: str, repo_roots: dict[str, st
     """派生进隔离内存 DB, yield store, 退出时 close session + dispose engine。
     CLI 与 MCP 的只读 derive 共用这一份(F1 教训: 别让隔离-derive 出现多份漂移)。"""
     eng = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(eng)
+    ensure_schema(eng)
     s = sessionmaker(bind=eng)()
     try:
         store = Store(s)

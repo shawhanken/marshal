@@ -17,7 +17,7 @@ import yaml
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from marshal_core.knowledge.models import Base
+from marshal_core.knowledge.models import ensure_schema
 from marshal_core.knowledge.store import Store
 from marshal_core.onboard.estimate import estimate_cost
 from marshal_core.onboard.detect import detect_repo
@@ -146,7 +146,7 @@ def _db_url() -> str:
 
 def _session():
     engine = create_engine(_db_url())
-    Base.metadata.create_all(engine)
+    ensure_schema(engine)
     return sessionmaker(bind=engine)()
 
 
@@ -292,19 +292,21 @@ def cmd_review_verify(a) -> int:
         bucket = {row["key"]: name
                   for name in ("survived", "killed", "unverified")
                   for row in out[name]}
+        findings = []
+        for it in items:
+            key = it.get("key") or ""
+            d = details.get(key, {})
+            findings.append({
+                "run_id": a.run_id, "key": key,
+                "severity": it.get("severity", ""),
+                "votes": it.get("votes", []) or [],
+                "quorum_verdict": bucket.get(key, ""),
+                "title": d.get("title", ""), "claim": d.get("claim", ""),
+                "location": d.get("location", ""), "lens": d.get("lens", ""),
+            })
         s = _session()
         try:
-            store = Store(s)
-            for it in items:
-                key = it.get("key") or ""
-                d = details.get(key, {})
-                store.record_finding(
-                    run_id=a.run_id, key=key,
-                    severity=it.get("severity", ""),
-                    votes=it.get("votes", []) or [],
-                    quorum_verdict=bucket.get(key, ""),
-                    title=d.get("title", ""), claim=d.get("claim", ""),
-                    location=d.get("location", ""), lens=d.get("lens", ""))
+            Store(s).record_findings(findings)
         finally:
             s.close()
     return _emit(out)

@@ -3,7 +3,7 @@ from sqlalchemy import select, func, or_
 from sqlalchemy.orm import Session
 from .models import (
     InvariantRegistry, GateRun, AuditLog, EscapeRegistry, Concept, ConceptEdge,
-    ConceptAnchorRow, ReviewRun, ReviewFinding,
+    ConceptAnchorRow, PlannedEvent, ReviewRun, ReviewFinding,
 )
 
 _HUMAN_VERDICTS = {"accepted", "rejected", "modified"}
@@ -115,6 +115,27 @@ class Store:
         self.s.commit()
         return esc
 
+    def save_planned_event(self, event, job_id: str) -> PlannedEvent:
+        if not isinstance(job_id, str) or not job_id:
+            raise ValueError("planned event job_id must be non-empty")
+        row = PlannedEvent(
+            job_id=job_id, kind=event.kind, repo=event.repo,
+            change_ref=event.change_ref, diff_paths=list(event.diff_paths),
+            labels=list(event.labels), actor=event.actor)
+        self.s.merge(row)
+        self.s.commit()
+        return row
+
+    def get_planned_event(self, job_id: str) -> dict | None:
+        row = self.s.get(PlannedEvent, job_id)
+        if row is None:
+            return None
+        return {
+            "kind": row.kind, "repo": row.repo, "change_ref": row.change_ref,
+            "diff_paths": list(row.diff_paths or []), "labels": list(row.labels or []),
+            "actor": row.actor,
+        }
+
     def open_review_run(self, **kw) -> ReviewRun:
         run = ReviewRun(**kw)
         self.s.add(run)
@@ -122,10 +143,54 @@ class Store:
         return run
 
     def record_finding(self, **kw) -> ReviewFinding:
+        run_id = kw.get("run_id")
+        key = kw.get("key")
+        if not isinstance(run_id, int) or self.s.get(ReviewRun, run_id) is None:
+            raise ValueError(f"review run not found: {run_id!r}")
+        if not isinstance(key, str) or not key:
+            raise ValueError("review finding key must be non-empty")
+        existing = self.s.scalar(select(ReviewFinding).where(
+            ReviewFinding.run_id == run_id, ReviewFinding.key == key))
+        if existing is not None:
+            for name, value in kw.items():
+                if name != "run_id" and hasattr(existing, name):
+                    setattr(existing, name, value)
+            self.s.commit()
+            return existing
         f = ReviewFinding(**kw)
         self.s.add(f)
         self.s.commit()
         return f
+
+    def record_findings(self, findings: list[dict]) -> list[ReviewFinding]:
+        """Atomically upsert one review run's finding batch."""
+        if not findings:
+            return []
+        run_ids = {item.get("run_id") for item in findings}
+        if len(run_ids) != 1:
+            raise ValueError("all findings in a batch must use one review run")
+        run_id = next(iter(run_ids))
+        if not isinstance(run_id, int) or self.s.get(ReviewRun, run_id) is None:
+            raise ValueError(f"review run not found: {run_id!r}")
+        keys = [item.get("key") for item in findings]
+        if any(not isinstance(key, str) or not key for key in keys):
+            raise ValueError("review finding keys must be non-empty")
+        if len(keys) != len(set(keys)):
+            raise ValueError("duplicate review finding key in batch")
+        saved = []
+        for item in findings:
+            existing = self.s.scalar(select(ReviewFinding).where(
+                ReviewFinding.run_id == run_id, ReviewFinding.key == item["key"]))
+            if existing is None:
+                existing = ReviewFinding(**item)
+                self.s.add(existing)
+            else:
+                for name, value in item.items():
+                    if name != "run_id" and hasattr(existing, name):
+                        setattr(existing, name, value)
+            saved.append(existing)
+        self.s.commit()
+        return saved
 
     def list_findings(self, run_id: int) -> list[ReviewFinding]:
         stmt = select(ReviewFinding).where(ReviewFinding.run_id == run_id)
