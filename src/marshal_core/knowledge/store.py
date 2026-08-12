@@ -136,6 +136,24 @@ class Store:
             "actor": row.actor,
         }
 
+    def close_escape_with_invariant(self, escape_id: str, spawned_check: str,
+                                    invariant: dict,
+                                    fix_ref: str | None = None) -> EscapeRegistry:
+        """Atomically register the ratchet check and close its escape."""
+        if not spawned_check:
+            raise ValueError("cannot close escape without a spawned_check (棘轮纪律)")
+        esc = self.s.get(EscapeRegistry, escape_id)
+        if esc is None:
+            raise ValueError(f"escape not found: {escape_id}")
+        row = InvariantRegistry(**invariant, origin="ratchet", escape_id=escape_id)
+        self.s.merge(row)
+        esc.spawned_check = spawned_check
+        esc.status = "closed"
+        if fix_ref is not None:
+            esc.fix_ref = fix_ref
+        self.s.commit()
+        return esc
+
     def open_review_run(self, **kw) -> ReviewRun:
         run = ReviewRun(**kw)
         self.s.add(run)
@@ -204,6 +222,8 @@ class Store:
         f = self.s.get(ReviewFinding, finding_id)
         if f is None:
             raise ValueError(f"finding not found: {finding_id}")
+        if f.human_verdict:
+            raise ValueError(f"finding {finding_id} already has a human verdict")
         f.human_verdict = verdict
         f.human_note = note
         self.s.commit()

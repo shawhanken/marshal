@@ -170,3 +170,33 @@ def test_results_reload_event_from_database(tmp_path, monkeypatch):
     response = client.post("/results", json=result)
     assert response.status_code == 200
     assert response.json()["verdict"] == "pass"
+
+
+def test_human_verdict_cannot_be_overwritten():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+    store = Store(session)
+    run = store.open_review_run(change_ref="retro")
+    finding = store.record_finding(run_id=run.id, key="k1")
+    store.set_human_verdict(finding.id, "accepted")
+    with pytest.raises(ValueError, match="already has"):
+        store.set_human_verdict(finding.id, "rejected")
+    session.close()
+
+
+def test_ratchet_close_registers_check_atomically():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+    store = Store(session)
+    store.open_escape(id="esc", description="d", root_cause_class="rc")
+    store.close_escape_with_invariant(
+        "esc", spawned_check="inv.x", fix_ref="fix",
+        invariant={"id": "inv.x", "domain_pack": "cowboy", "domain": "test",
+                    "spec_ref": "CIP-1", "executor_kind": "command",
+                    "location_repo": "node", "location_path": "x",
+                    "location_test": "test_x", "severity": "mid"})
+    assert store.get_escape("esc").status == "closed"
+    assert store.list_invariants("cowboy", "node")[0].id == "inv.x"
+    session.close()

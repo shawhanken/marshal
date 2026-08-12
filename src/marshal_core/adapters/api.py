@@ -1,5 +1,6 @@
 """FastAPI 接入端点。POST /webhook (PR 事件), POST /results (CI 回传)。"""
 import os
+from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -12,7 +13,8 @@ from marshal_core.adapters.github import parse_pull_request_event, build_check_r
 from marshal_pack_cowboy.pack import CowboyPack
 
 app = FastAPI(title="Marshal")
-_engine = create_engine(os.environ.get("MARSHAL_DB", "sqlite:///marshal.db"))
+_DEFAULT_DB = Path(__file__).resolve().parents[2] / "marshal.db"
+_engine = create_engine(os.environ.get("MARSHAL_DB", f"sqlite:///{_DEFAULT_DB}"))
 ensure_schema(_engine)
 _Session = sessionmaker(bind=_engine)
 _PACK = CowboyPack()
