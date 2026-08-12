@@ -43,23 +43,25 @@ runs:
             exit 1
           }
         fi
-        if ! PATHS=$(git diff --name-only "$BASE" HEAD); then
+        if ! PATHS_B64=$(git diff --name-only -z "$BASE" HEAD | base64 -w0); then
           echo "::error::git diff against $BASE failed; refusing to fall back to an empty diff"
           exit 1
         fi
-        if [ -z "$PATHS" ]; then
+        if [ -z "$PATHS_B64" ]; then
           echo "::warning::empty diff between $BASE and HEAD"
         fi
-        echo "paths=$(printf '%s\n' "$PATHS" | paste -sd, -)" >> "$GITHUB_OUTPUT"
+        echo "paths_b64=$PATHS_B64" >> "$GITHUB_OUTPUT"
     - name: Run Marshal reporter
       shell: bash
       env:
         BRAIN_URL: ${{ inputs.brain-url }}
         REPO_ID: ${{ inputs.repo }}
-        DIFF_PATHS: ${{ steps.diff.outputs.paths }}
+        DIFF_PATHS_B64: ${{ steps.diff.outputs.paths_b64 }}
+        PR_LABELS_JSON: ${{ toJSON(github.event.pull_request.labels) }}
       run: |
         python3 "$GITHUB_ACTION_PATH/src/marshal_core/executor/reporter.py" \
           --brain-url "$BRAIN_URL" \
           --repo "$REPO_ID" \
           --change-ref "$GITHUB_SHA" \
-          --diff-paths "$DIFF_PATHS"
+          --diff-paths-b64 "$DIFF_PATHS_B64" \
+          --labels-json "$PR_LABELS_JSON"

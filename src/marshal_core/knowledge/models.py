@@ -1,11 +1,38 @@
 """知识核持久模型 — schema 领域无关 (domain/severity 取值由领域包定义)。"""
 from datetime import datetime, timezone
-from sqlalchemy import String, Integer, JSON, DateTime, Boolean, Float
+from sqlalchemy import String, Integer, JSON, DateTime, Boolean, Float, inspect, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
 class Base(DeclarativeBase):
     pass
+
+
+def ensure_schema(engine) -> None:
+    """Create tables and apply the additive migrations used by the trace store."""
+    Base.metadata.create_all(engine)
+    inspector = inspect(engine)
+    if "escape_registry" not in inspector.get_table_names():
+        return
+    existing = {column["name"] for column in inspector.get_columns("escape_registry")}
+    additions = {"fix_ref": "VARCHAR", "missed_by_run_id": "INTEGER"}
+    missing = [(name, sql_type) for name, sql_type in additions.items()
+               if name not in existing]
+    if not missing:
+        return
+    with engine.begin() as conn:
+        for name, sql_type in missing:
+            try:
+                conn.execute(text(
+                    f"ALTER TABLE escape_registry ADD COLUMN {name} {sql_type}"))
+            except OperationalError as exc:
+                # A second worker may have applied this additive migration after
+                # the inspector snapshot. Ignore only that race, never arbitrary
+                # migration failures.
+                message = str(exc).lower()
+                if "duplicate column" not in message and "already exists" not in message:
+                    raise
 
 
 def _now() -> datetime:
@@ -62,6 +89,19 @@ class EscapeRegistry(Base):
     status: Mapped[str] = mapped_column(String, default="open")
     fix_ref: Mapped[str | None] = mapped_column(String, nullable=True)
     missed_by_run_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class PlannedEvent(Base):
+    """Durable plan context used when /plan and /results hit different workers."""
+    __tablename__ = "planned_event"
+    job_id: Mapped[str] = mapped_column(String, primary_key=True)
+    kind: Mapped[str] = mapped_column(String)
+    repo: Mapped[str] = mapped_column(String, index=True)
+    change_ref: Mapped[str] = mapped_column(String, index=True)
+    diff_paths: Mapped[list] = mapped_column(JSON, default=list)
+    labels: Mapped[list] = mapped_column(JSON, default=list)
+    actor: Mapped[str] = mapped_column(String, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
 class ReviewRun(Base):

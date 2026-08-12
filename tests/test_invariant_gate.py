@@ -147,3 +147,27 @@ def test_confirmed_failure_still_blocks_even_if_incomplete():
                               "passed": False, "detail": "assert failed"}]})
     decision = gate.evaluate(ev, job, res)
     assert decision.verdict == "block"
+
+
+def test_non_boolean_passed_is_rejected_as_degraded():
+    gate = InvariantGate(pack=CowboyPack())
+    ev = _event()
+    job = gate.build_dispatch(ev)
+    res = StructuredResult(job_id=job.job_id, kind="invariant", status="ok",
+        payload={"results": [{"invariant_id": i, "passed": "false"}
+                              for i in job.params["invariant_ids"]]})
+    decision = gate.evaluate(ev, job, res)
+    assert decision.verdict == "escalate"
+    assert decision.gates[0]["outcome"] == "degraded"
+
+
+def test_explicit_failure_blocks_even_with_degraded_status():
+    gate = InvariantGate(pack=CowboyPack())
+    ev = _event()
+    job = gate.build_dispatch(ev)
+    res = StructuredResult(job_id=job.job_id, kind="invariant", status="degraded",
+        payload={"results": [{"invariant_id": job.params["invariant_ids"][0],
+                              "passed": False}]})
+    decision = gate.evaluate(ev, job, res)
+    assert decision.verdict == "block"
+    assert decision.gates[0]["outcome"] == "fail"

@@ -17,7 +17,7 @@ import yaml
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from marshal_core.knowledge.models import Base
+from marshal_core.knowledge.models import ensure_schema
 from marshal_core.knowledge.store import Store
 from marshal_core.onboard.estimate import estimate_cost
 from marshal_core.onboard.detect import detect_repo
@@ -146,7 +146,7 @@ def _db_url() -> str:
 
 def _session():
     engine = create_engine(_db_url())
-    Base.metadata.create_all(engine)
+    ensure_schema(engine)
     return sessionmaker(bind=engine)()
 
 
@@ -285,6 +285,11 @@ def cmd_review_verify(a) -> int:
     # ③ 对抗式验证二段: 按 skeptic 投票裁决每条发现 (default-to-refute)。
     # --run-id: ⑧ 顺手把每条发现的裁决链落 review trace (不带则行为不变, 纯函数)。
     items = json.loads(a.votes_json)
+    keys = [item.get("key") for item in items]
+    if any(not isinstance(key, str) or not key for key in keys):
+        raise ValueError("every review finding must have a non-empty key")
+    if len(keys) != len(set(keys)):
+        raise ValueError("duplicate review finding key in review-verify input")
     out = verify_findings(items)
     if a.run_id is not None:
         details = ({d["key"]: d for d in json.loads(a.findings_json)}
@@ -292,31 +297,40 @@ def cmd_review_verify(a) -> int:
         bucket = {row["key"]: name
                   for name in ("survived", "killed", "unverified")
                   for row in out[name]}
+        findings = []
+        for it in items:
+            key = it.get("key") or ""
+            d = details.get(key, {})
+            findings.append({
+                "run_id": a.run_id, "key": key,
+                "severity": it.get("severity", ""),
+                "votes": it.get("votes", []) or [],
+                "quorum_verdict": bucket.get(key, ""),
+                "title": d.get("title", ""), "claim": d.get("claim", ""),
+                "location": d.get("location", ""), "lens": d.get("lens", ""),
+            })
         s = _session()
         try:
-            store = Store(s)
-            for it in items:
-                key = it.get("key") or ""
-                d = details.get(key, {})
-                store.record_finding(
-                    run_id=a.run_id, key=key,
-                    severity=it.get("severity", ""),
-                    votes=it.get("votes", []) or [],
-                    quorum_verdict=bucket.get(key, ""),
-                    title=d.get("title", ""), claim=d.get("claim", ""),
-                    location=d.get("location", ""), lens=d.get("lens", ""))
+            Store(s).record_findings(findings)
         finally:
             s.close()
     return _emit(out)
 
 
 def _detect_skill_rev() -> str:
-    # prompt-as-program: the marshal checkout's git rev IS the prompt version.
+    # prompt-as-program: record the full checkout revision and flag dirty skill files.
     root = Path(__file__).resolve().parents[2]
     try:
-        out = subprocess.run(["git", "-C", str(root), "rev-parse", "--short", "HEAD"],
+        rev = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"],
                              capture_output=True, text=True, timeout=10)
-        return out.stdout.strip() if out.returncode == 0 else ""
+        if rev.returncode != 0 or not rev.stdout.strip():
+            return ""
+        dirty = subprocess.run(
+            ["git", "-C", str(root), "diff", "--quiet", "HEAD", "--",
+             ".agents/skills/marshal", ".claude/skills/marshal"],
+            capture_output=True, text=True, timeout=10)
+        suffix = "-dirty" if dirty.returncode != 0 else ""
+        return rev.stdout.strip() + suffix
     except Exception:
         return ""
 
@@ -493,9 +507,9 @@ def cmd_ratchet_close(a) -> int:
     s = _session()
     try:
         store = Store(s)
-        store.register_invariant(**inv, origin="ratchet", escape_id=a.escape_id)
-        store.close_escape(a.escape_id, spawned_check=a.spawned_check,
-                           fix_ref=a.fix_ref)
+        store.close_escape_with_invariant(
+            a.escape_id, spawned_check=a.spawned_check, invariant=inv,
+            fix_ref=a.fix_ref)
         return _emit({"ok": True, "escape_id": a.escape_id,
                       "spawned_check": a.spawned_check})
     finally:

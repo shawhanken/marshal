@@ -36,8 +36,8 @@ class _FilesResp:
 
 def test_full_slice_shadow(client, monkeypatch):
     import marshal_core.adapters.api as api
-    monkeypatch.setattr(api.httpx, "get", lambda *a, **kw: _FilesResp(
-        [{"filename": "execution/src/execution/transaction.rs"}]))
+    monkeypatch.setattr(api.httpx, "AsyncClient", lambda **kw: _AsyncFilesClient(
+        _FilesResp([{"filename": "execution/src/execution/transaction.rs"}])))
 
     # 1) PR 事件 — 改动文件列表来自 GitHub files API, 不再信 payload 私货
     r1 = client.post("/webhook", json=_webhook_payload())
@@ -63,10 +63,8 @@ def test_full_slice_shadow(client, monkeypatch):
 def test_webhook_refuses_when_files_api_unreachable(client, monkeypatch):
     import marshal_core.adapters.api as api
 
-    def _boom(*a, **kw):
-        raise RuntimeError("github unreachable")
-
-    monkeypatch.setattr(api.httpx, "get", _boom)
+    monkeypatch.setattr(api.httpx, "AsyncClient", lambda **kw: _AsyncFilesClient(
+        error=RuntimeError("github unreachable")))
     r = client.post("/webhook", json=_webhook_payload())
     assert r.status_code == 502          # 拿不到改动文件 → 拒绝出结论, 不按空 diff 硬算
 
@@ -78,3 +76,20 @@ def test_results_for_unknown_job_rejected(client):
     }
     r = client.post("/results", json=result)
     assert r.status_code == 404
+
+
+class _AsyncFilesClient:
+    def __init__(self, response=None, error=None):
+        self.response = response
+        self.error = error
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def get(self, *a, **kw):
+        if self.error:
+            raise self.error
+        return self.response
