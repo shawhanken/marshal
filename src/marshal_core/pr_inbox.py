@@ -217,3 +217,5 @@ def build_inbox(session, repos=None) -> list[dict]:
             })
     prs.sort(key=lambda p: p["updated_at"], reverse=True)
     return prs
+
+# review-queue smoke: build_inbox is pure given the GitHub seams (test PR)
