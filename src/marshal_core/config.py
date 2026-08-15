@@ -24,3 +24,5 @@ def db_url() -> str:
     if os.environ.get("MARSHAL_DB"):
         return os.environ["MARSHAL_DB"]
     return f"sqlite:///{marshal_home() / 'marshal.db'}"
+
+# review-queue smoke: db_url/marshal_home read env fresh each call (test PR)
