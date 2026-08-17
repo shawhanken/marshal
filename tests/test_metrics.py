@@ -31,5 +31,10 @@ def test_metrics_counts(db_session):
 def test_metrics_marks_unavailable_honestly(db_session):
     s = Store(db_session)
     m = s.metrics()
-    for k in ("escape_rate", "mean_time_to_detection", "tiered_review_coverage"):
+    # escape_rate + tiered coverage remain honestly unavailable
+    for k in ("escape_rate", "tiered_review_coverage"):
         assert k in m["unavailable"]
+    # MTTD is now a real computed value, no longer in `unavailable`
+    assert "mean_time_to_detection" not in m["unavailable"]
+    assert m["mean_time_to_detection"]["mean_days"] is None      # no timestamped escapes
+    assert m["mean_time_to_detection"]["count"] == 0

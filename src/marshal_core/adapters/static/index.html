@@ -1,0 +1,1249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Marshal Dashboard</title>
+<style>
+  /* Cowboy design system — western palette (hay / bison / nugget / cactus / canyon),
+     matching examples/cip34_chat_demo, including its Google Fonts webfonts.
+     NOTE: this @import fetches from fonts.googleapis.com (an external request) — the
+     SPA is no longer fully self-contained; the font-family stacks still fall back to
+     system fonts if the fetch is blocked or offline. */
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,600&family=JetBrains+Mono:wght@400;500&display=swap');
+  :root {
+    /* Cowboy western palette — matches examples/cip34_chat_demo (hay / bison / nugget / cactus / canyon) */
+    --bg:#f9f7f5; --card:#ffffff; --surface2:#f4f0eb; --line:#ebe5df;
+    --fg:#1d1916; --muted:#72675f;
+    --accent:#ff9d14; --accent-ink:#291400; --link:#a85700; --on-color:#fff7eb;
+    --pass:#29754a; --needs:#e58200; --block:#b22d10; --red:#b22d10;
+    /* always-dark sidebar in warm bison tones (not cool ink) */
+    --ink:#1d1916; --ink-2:#2a221b; --ink-line:#3a3129; --ink-fg:#f4efe9; --ink-muted:#a99e93;
+    --shadow-card:0 4px 4px -4px #dfd6cd, 0 0 1px 0 #988e86;
+    --shadow-pop:0 14px 30px -12px rgba(41,20,0,.24), 0 4px 10px -4px rgba(41,20,0,.12);
+    --radius:14px; --radius-sm:10px; --sidew:250px;
+    --sans:'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    --serif:'Fraunces',ui-serif,Georgia,serif;
+    --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:var(--sans); font-size:14px; line-height:1.5; background:var(--bg); color:var(--fg); -webkit-font-smoothing:antialiased; }
+
+  /* ---------- app shell ---------- */
+  .shell { display:flex; min-height:100vh; }
+  .sidebar { width:var(--sidew); flex:0 0 var(--sidew); background:linear-gradient(185deg,var(--ink-2),var(--ink));
+             color:var(--ink-fg); display:flex; flex-direction:column; position:sticky; top:0; height:100vh;
+             border-right:1px solid var(--ink-line); }
+  .brand { display:flex; align-items:center; gap:12px; padding:22px 20px 20px; }
+  .brand-badge { width:40px; height:40px; border-radius:12px; flex:0 0 auto; display:grid; place-items:center;
+                 background:linear-gradient(145deg,#ffc25e,var(--accent)); color:#231000;
+                 box-shadow:0 6px 18px -5px rgba(255,157,20,.55), inset 0 1px 0 rgba(255,255,255,.4); }
+  .brand-badge svg { width:23px; height:23px; }
+  .brand-name { font-family:var(--serif); font-weight:600; font-size:19px; letter-spacing:-.01em; line-height:1.05; color:#fff; }
+  .brand-sub { font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:var(--ink-muted); margin-top:3px; }
+  .nav { display:flex; flex-direction:column; gap:3px; padding:6px 12px; }
+  .nav .lbl { font-size:10px; letter-spacing:.13em; text-transform:uppercase; color:var(--ink-muted); padding:14px 10px 6px; }
+  .navitem { display:flex; align-items:center; gap:11px; width:100%; text-align:left; background:none; border:none;
+             color:var(--ink-muted); font:inherit; font-weight:500; font-size:13.5px; cursor:pointer;
+             padding:10px 11px; border-radius:10px; transition:background .13s,color .13s; }
+  .navitem:hover { background:rgba(255,255,255,.05); color:var(--ink-fg); }
+  .navitem.active { background:rgba(255,157,20,.15); color:#fff; box-shadow:inset 2px 0 0 var(--accent); }
+  .navitem svg { width:17px; height:17px; flex:0 0 auto; opacity:.92; }
+  .navitem.sub { padding:7px 11px 7px 22px; font-size:12.5px; font-weight:450; }
+  .navitem.sub::before { content:''; width:5px; height:5px; border-radius:50%; background:currentColor; opacity:.45; flex:0 0 auto; }
+  .side-foot { margin-top:auto; padding:14px; border-top:1px solid var(--ink-line); display:flex; flex-direction:column; gap:10px; }
+  .env { font-family:var(--mono); font-size:10.5px; color:var(--ink-muted); letter-spacing:.02em; }
+  .env b { color:var(--pass); font-weight:600; }
+  /* worker queue mini-panel (animated) */
+  #workerQueue { display:flex; flex-direction:column; gap:6px; }
+  #workerQueue:empty { display:none; }
+  .wq-job { font-family:var(--mono); font-size:10.5px; color:var(--ink-muted); }
+  .wq-job.running { color:var(--ink-fg); }
+  .wq-job.pending { display:flex; align-items:center; gap:6px; }
+  .wq-line { display:flex; align-items:center; gap:6px; min-width:0; }
+  .wq-name { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .wq-ico { color:var(--needs); }
+  .wq-el { margin-left:auto; color:var(--needs); font-weight:600; }
+  .wq-dot { width:6px; height:6px; border-radius:50%; background:var(--ink-muted); flex:0 0 auto; animation:wpulse 1.5s ease-in-out infinite; }
+  .proc-bar { height:4px; border-radius:3px; background:rgba(255,255,255,.06); overflow:hidden; margin-top:5px; }
+  .proc-bar i { display:block; height:100%; width:38%; border-radius:3px; background:linear-gradient(90deg,transparent,var(--accent),transparent); animation:sweep 1.3s ease-in-out infinite; }
+  @keyframes sweep { 0% { transform:translateX(-120%); } 100% { transform:translateX(330%); } }
+  .wq-more { font-family:var(--mono); font-size:10px; color:var(--ink-muted); }
+  @media (max-width:760px){ #workerQueue { display:none; } }
+
+  /* transitions, press feedback, toasts */
+  .view-enter { animation:viewEnter .3s cubic-bezier(.2,.7,.2,1); }
+  @keyframes viewEnter { from { opacity:0; transform:translateY(9px); } to { opacity:1; transform:none; } }
+  .btn:active:not(:disabled) { transform:translateY(1px); }
+  .pill.click:active, .sumstat.click:active, .navitem:active { transform:translateY(1px); }
+  .toasts { position:fixed; right:20px; bottom:20px; z-index:60; display:flex; flex-direction:column; gap:10px; align-items:flex-end; }
+  .toast { display:flex; align-items:center; gap:10px; background:var(--card); color:var(--fg); border:1px solid var(--line);
+           border-left:3px solid var(--muted); border-radius:12px; padding:11px 15px; box-shadow:var(--shadow-pop);
+           font-size:13px; max-width:340px; animation:toastIn .3s cubic-bezier(.2,.8,.2,1); }
+  .toast.out { animation:toastOut .3s ease forwards; }
+  .toast.ok { border-left-color:var(--pass); } .toast.bad { border-left-color:var(--block); } .toast.info { border-left-color:var(--accent); }
+  .toast .ti { font-size:15px; flex:0 0 auto; }
+  @keyframes toastIn { from { opacity:0; transform:translateX(22px) scale(.96); } to { opacity:1; transform:none; } }
+  @keyframes toastOut { to { opacity:0; transform:translateX(22px) scale(.96); } }
+
+  /* ---------- Worker Queue page (animated live pipeline) ---------- */
+  .wqp-flow { display:flex; align-items:center; gap:16px; padding:8px 6px 22px; }
+  .wqp-node { display:flex; flex-direction:column; align-items:center; gap:8px; flex:0 0 auto; }
+  .wqp-nl { font-size:10.5px; color:var(--muted); text-align:center; line-height:1.2; font-family:var(--mono); }
+  .wqp-badge { width:54px; height:54px; border-radius:16px; display:grid; place-items:center; font-size:25px;
+               background:linear-gradient(145deg,#ffc25e,var(--accent)); color:#231000; animation:nodePulse 1.9s ease-in-out infinite; }
+  .wqp-ghico { width:54px; height:54px; border-radius:16px; display:grid; place-items:center; font-size:24px;
+               background:var(--surface2); border:1px solid var(--line); color:var(--fg); }
+  @keyframes nodePulse { 0%,100% { box-shadow:0 0 0 0 rgba(255,157,20,.45); } 50% { box-shadow:0 0 0 11px rgba(255,157,20,0); } }
+  .wqp-wire { position:relative; flex:1 1 auto; height:3px; border-radius:3px; min-width:60px; background:linear-gradient(90deg,var(--accent),var(--line)); }
+  .wqp-wire span { position:absolute; top:-3px; width:8px; height:8px; border-radius:50%; background:var(--accent); box-shadow:0 0 10px var(--accent); animation:flow 1.7s linear infinite; }
+  .wqp-wire span:nth-child(2){ animation-delay:.42s; } .wqp-wire span:nth-child(3){ animation-delay:.85s; } .wqp-wire span:nth-child(4){ animation-delay:1.27s; }
+  @keyframes flow { 0% { left:-2%; opacity:0; } 12% { opacity:1; } 88% { opacity:1; } 100% { left:100%; opacity:0; } }
+  .wqp-target { position:relative; overflow:hidden; border:1px solid var(--line); border-radius:12px; padding:16px 18px; background:var(--card); }
+  .wqp-scan { position:absolute; left:0; right:0; height:72px; top:-72px; pointer-events:none;
+              background:linear-gradient(180deg,transparent,rgba(255,157,20,.16),transparent); animation:scanY 2.6s cubic-bezier(.5,0,.5,1) infinite; }
+  @keyframes scanY { 0% { top:-72px; } 100% { top:100%; } }
+  .wqp-ttop { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+  .wqp-title { font-size:16px; font-weight:600; margin-top:11px; line-height:1.4; }
+  .wqp-meta { display:flex; flex-wrap:wrap; gap:14px; font-family:var(--mono); font-size:11px; color:var(--muted); margin-top:9px; }
+  .wqp-status { font-family:var(--mono); font-size:12.5px; color:var(--needs); margin-top:14px; }
+  .wqp-status b { color:var(--fg); }
+  .wqp-target .proc-bar { margin-top:10px; height:5px; background:var(--surface2); }
+  .chip.ana { color:var(--accent); border-color:color-mix(in srgb,var(--accent) 45%,transparent); animation:anaPulse 1.4s ease-in-out infinite; }
+  @keyframes anaPulse { 0%,100% { opacity:1; } 50% { opacity:.45; } }
+  .wqp-wait { display:flex; align-items:center; gap:12px; padding:11px 4px; border-top:1px solid var(--line); animation:waitIn .4s ease both; }
+  .wqp-wait:first-of-type { border-top:none; }
+  @keyframes waitIn { from { opacity:0; transform:translateX(-8px); } to { opacity:1; transform:none; } }
+  .qpos { width:24px; height:24px; border-radius:8px; display:grid; place-items:center; flex:0 0 auto; font-family:var(--mono);
+          font-size:12px; font-weight:600; color:var(--muted); background:var(--surface2); border:1px solid var(--line); }
+  .wqp-winfo { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; }
+  .wqp-wtitle { color:var(--fg); }
+  .wqp-wind { flex:0 0 auto; display:inline-flex; align-items:center; gap:3px; font-family:var(--mono); font-size:10.5px; color:var(--muted); }
+  .wqp-wdot { width:4px; height:4px; border-radius:50%; background:var(--muted); animation:wpulse 1.4s ease-in-out infinite; }
+  .wqp-wind .wqp-wdot:nth-child(2){ animation-delay:.2s; } .wqp-wind .wqp-wdot:nth-child(3){ animation-delay:.4s; }
+  .wqp-empty { display:flex; align-items:center; gap:16px; padding:26px 22px; }
+  .wqp-eico { font-size:34px; flex:0 0 auto; }
+  .wqp-eico.rest { width:54px; height:54px; border-radius:16px; display:grid; place-items:center; font-size:25px;
+                   background:linear-gradient(145deg,#ffc25e,var(--accent)); color:#231000; animation:nodePulse 2.4s ease-in-out infinite; }
+
+  /* worker pill — on the dark sidebar */
+  .wpill { font-family:var(--mono); font-size:11px; display:inline-flex; align-items:center; gap:7px;
+           padding:6px 11px; border-radius:9px; border:1px solid var(--ink-line); background:rgba(255,255,255,.03);
+           color:var(--ink-muted); white-space:nowrap; cursor:default; max-width:100%; overflow:hidden; }
+  .wpill .wd { width:8px; height:8px; border-radius:50%; background:var(--ink-muted); flex:0 0 auto; }
+  .wpill.idle .wd { background:var(--pass); } .wpill.idle { color:var(--ink-fg); }
+  .wpill.busy .wd { background:var(--needs); animation:wpulse 1.1s ease-in-out infinite; }
+  .wpill.busy { color:#f6b45a; border-color:rgba(217,119,6,.5); }
+  .wpill.down .wd { background:var(--block); animation:wpulse 1.1s ease-in-out infinite; }
+  .wpill.down { color:#ff8f6e; border-color:rgba(209,70,47,.5); }
+  @keyframes wpulse { 0%,100% { opacity:1; } 50% { opacity:.3; } }
+
+  /* ---------- content ---------- */
+  .content { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; }
+  .topbar { display:flex; align-items:center; gap:14px; padding:16px 32px; border-bottom:1px solid var(--line);
+            background:var(--card); position:sticky; top:0; z-index:5; box-shadow:var(--shadow-card); }
+  .page-title { font-family:var(--serif); font-size:20px; font-weight:600; letter-spacing:-.01em; }
+  #status { font-family:var(--mono); font-size:12px; color:var(--muted); margin-left:auto; }
+  main { padding:26px 32px 44px; max-width:1120px; width:100%; margin:0 auto; }
+  @media (max-width:760px){
+    .shell { flex-direction:column; }
+    .sidebar { width:auto; flex:none; height:auto; position:static; flex-direction:row; flex-wrap:wrap; align-items:center; }
+    .brand { padding:12px 16px; } .nav { flex-direction:row; padding:6px 10px; } .nav .lbl { display:none; }
+    .side-foot { margin:0; border:none; padding:10px 16px; flex-direction:row; align-items:center; }
+    main { padding:18px 16px 32px; } .topbar { padding:13px 16px; }
+  }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:18px 20px; margin-bottom:16px; box-shadow:var(--shadow-card); transition:box-shadow .15s, border-color .15s; }
+  .card h3 { margin:0 0 12px; font-size:11.5px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.07em; }
+  .row { display:flex; flex-wrap:wrap; gap:10px 18px; color:var(--muted); font-size:13px; }
+  .tag { display:inline-block; padding:2px 8px; border-radius:4px; background:transparent; border:1px solid var(--line); color:var(--muted); font-family:var(--mono); font-size:11px; }
+  .tag[style] { color:var(--on-color); border-color:transparent; }   /* colored legend chips get light text */
+  .tier-high { color:var(--block); font-weight:600; }
+  .verdict-needs_human, .verdict-escalate { border-left:3px solid var(--needs); }
+  .card.blocked { opacity:.75; }
+  b.title { font-size:14.5px; font-weight:600; }
+  .repotag { font-family:var(--mono); font-size:11px; font-weight:600; color:var(--link); background:var(--surface2);
+             border:1px solid var(--line); border-radius:5px; padding:1px 7px; margin-right:3px; white-space:nowrap; }
+  .prnum { font-family:var(--mono); font-weight:500; color:var(--muted); margin-right:2px; }
+  /* Review Queue PR card v2 */
+  .pr-card { position:relative; background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+             padding:15px 18px 13px 20px; margin-bottom:12px; box-shadow:var(--shadow-card); overflow:hidden;
+             transition:box-shadow .16s, transform .1s; }
+  .pr-card::before { content:''; position:absolute; left:0; top:0; bottom:0; width:4px; background:var(--st,var(--muted)); }
+  .pr-card:hover { box-shadow:var(--shadow-pop); transform:translateY(-1px); }
+  .pr-card.flash-ok { animation:flashOk 1.15s ease; }
+  .pr-card.flash-bad { animation:flashBad 1.15s ease; }
+  @keyframes flashOk { 0% { background:color-mix(in srgb,var(--pass) 16%,var(--card)); } 100% { background:var(--card); } }
+  @keyframes flashBad { 0% { background:color-mix(in srgb,var(--block) 16%,var(--card)); } 100% { background:var(--card); } }
+  .pr-card.blocked { opacity:.82; }
+  .pr-top { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
+  .pr-title { font-size:14.5px; font-weight:600; flex:1; min-width:0; line-height:1.35; }
+  .pr-elig { font-size:11.5px; font-weight:600; white-space:nowrap; }
+  .pr-chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
+  .chip { display:inline-flex; align-items:center; gap:5px; font-family:var(--mono); font-size:10.5px; font-weight:600;
+          border:1px solid var(--line); border-radius:6px; padding:2px 8px; color:var(--muted); background:var(--surface2); white-space:nowrap; }
+  .chip.ok { color:var(--pass); border-color:color-mix(in srgb,var(--pass) 38%,transparent); }
+  .chip.warn { color:var(--needs); border-color:color-mix(in srgb,var(--needs) 40%,transparent); }
+  .chip.bad { color:var(--block); border-color:color-mix(in srgb,var(--block) 42%,transparent); }
+  .pr-meta { display:flex; flex-wrap:wrap; gap:14px; font-family:var(--mono); font-size:11px; color:var(--muted); margin-top:10px; }
+  .sev-badge { font-size:11px; font-weight:600; color:var(--block); }
+  .stale-badge { font-size:11px; font-weight:600; color:var(--needs); border:1px solid var(--needs); border-radius:4px; padding:1px 6px; }
+  .finding { font-size:12.5px; margin:3px 0; color:var(--fg); }
+  .finding .sev { font-weight:700; text-transform:uppercase; font-size:10px; margin-right:6px; }
+  .sev.sev-high { color:var(--block); } .sev.sev-medium, .sev.sev-mid { color:var(--needs); }
+  .sev.sev-low, .sev.sev-advisory, .sev.sev-info { color:var(--muted); }
+  .viewlink { color:var(--link); font-size:12px; text-decoration:none; align-self:center; }
+  .viewlink:hover { text-decoration:underline; }
+  details summary { cursor:pointer; color:var(--link); font-size:13px; }
+  details summary:hover { text-decoration:underline; }
+  pre { overflow:auto; background:var(--surface2); border:1px solid var(--line); padding:10px 12px; border-radius:8px; font-family:var(--mono); font-size:12px; }
+  .bar { height:16px; border-radius:4px; background:var(--accent); }
+  .stack { display:flex; height:14px; border-radius:4px; overflow:hidden; background:var(--surface2); }
+  .stack span { display:block; height:100%; }
+  .barlabel { display:flex; justify-content:space-between; font-size:12px; margin:7px 0 2px; }
+  .gap { color:var(--muted); font-size:12px; border-top:1px dashed var(--line); padding-top:8px; margin-top:8px; }
+  .muted { color:var(--muted); }
+  .jobrow { margin-top:12px; font-size:12px; color:var(--muted); display:flex; gap:8px; align-items:center; }
+  .btn { background:var(--card); color:var(--fg); border:1px solid var(--line); border-radius:9px; padding:6px 13px; font:inherit; font-size:12px; font-weight:500; cursor:pointer; transition:border-color .12s, box-shadow .12s, filter .12s; }
+  .btn:hover { border-color:var(--accent); box-shadow:0 0 0 3px rgba(255,157,20,.12); }
+  .btn.deep { background:linear-gradient(145deg,#ffb43e,var(--accent)); color:var(--accent-ink); border-color:transparent; font-weight:600; box-shadow:0 4px 12px -4px rgba(255,157,20,.5); }
+  .btn.deep:hover { filter:brightness(1.04); box-shadow:0 6px 16px -4px rgba(255,157,20,.6); }
+  .btn:disabled { opacity:.5; cursor:default; }
+  .dot { width:8px; height:8px; border-radius:50%; display:inline-block; }
+  .dot.pending { background:var(--muted); } .dot.running { background:var(--needs); }
+  .dot.done { background:var(--pass); } .dot.failed { background:var(--block); }
+
+  /* first-load / slow-fetch state (so a slow Review Queue never looks frozen) */
+  .loading { text-align:center; padding:40px 16px 10px; }
+  .spinner { width:34px; height:34px; margin:0 auto 16px; border:3px solid var(--line);
+             border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .loading .lt { font-size:15px; font-weight:600; color:var(--fg); font-family:var(--serif); }
+  .loading .ls { font-size:13px; color:var(--muted); margin:9px auto 0; line-height:1.6; max-width:440px; }
+  .loading .elapsed { font-family:var(--mono); color:var(--accent); font-weight:600; }
+  .skeleton { height:60px; border-radius:12px; margin-top:12px; border:1px solid var(--line);
+              background:linear-gradient(100deg,var(--surface2) 28%,var(--line) 50%,var(--surface2) 72%);
+              background-size:200% 100%; animation:shimmer 1.3s linear infinite; }
+  @keyframes shimmer { from { background-position:200% 0; } to { background-position:-200% 0; } }
+
+  /* Review Queue summary */
+  .summary { padding:15px 18px; }
+  .sumrow { display:flex; gap:14px 30px; align-items:baseline; flex-wrap:wrap; }
+  .sumstat { display:flex; flex-direction:column; }
+  .sumstat .n { font-family:var(--mono); font-size:27px; font-weight:600; line-height:1; color:var(--fg); }
+  .sumstat.go .n { color:var(--accent); }
+  .sumstat.hold .n { color:var(--muted); }
+  .sumstat .l { font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-top:7px; }
+  .sumbreak { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:13px; padding-top:12px;
+              border-top:1px solid var(--line); font-size:12px; color:var(--muted); }
+  .pill { display:inline-flex; align-items:center; gap:5px; border:1px solid var(--line); border-radius:20px;
+          padding:3px 11px; background:var(--surface2); color:var(--muted); }
+  .pill b { color:var(--fg); font-family:var(--mono); }
+  .sumstat.click { cursor:pointer; padding:5px 10px; margin:-5px -4px; border-radius:9px; }
+  .sumstat.click:hover { background:var(--surface2); }
+  .sumstat.active { background:var(--surface2); box-shadow:inset 0 -2px 0 var(--accent); }
+  .pill.click { cursor:pointer; }
+  .pill.click:hover { border-color:var(--accent); }
+  .pill.active { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
+  .pill.active b { color:var(--accent-ink); }
+  .clearf { cursor:pointer; color:var(--link); margin-left:2px; }
+  .clearf:hover { text-decoration:underline; }
+  .grouptoggle { display:flex; gap:2px; align-self:center; margin-left:auto; background:var(--surface2);
+                 border:1px solid var(--line); border-radius:8px; padding:2px; }
+  .grouptoggle button { background:none; border:none; font:inherit; font-size:11.5px; font-weight:500;
+                        color:var(--muted); cursor:pointer; padding:3px 11px; border-radius:6px; }
+  .grouptoggle button:hover { color:var(--fg); }
+  .grouptoggle button.active { background:var(--card); color:var(--fg); box-shadow:var(--shadow-card); }
+  /* repo grouping */
+  .repohdr { display:flex; align-items:center; gap:9px; margin:18px 2px 9px; padding-bottom:7px;
+             border-bottom:1px solid var(--line); cursor:pointer; user-select:none; }
+  .repohdr .chev { color:var(--muted); font-size:10px; width:10px; text-align:center; }
+  .repohdr .rn { font-family:var(--mono); font-weight:600; font-size:13px; color:var(--fg); }
+  .repohdr .cnt { font-family:var(--mono); font-size:11px; color:var(--muted); background:var(--surface2);
+                  border:1px solid var(--line); border-radius:20px; padding:1px 9px; }
+  .repohdr .rmeta { margin-left:auto; font-size:11.5px; color:var(--muted); }
+  .repohdr:hover .rn { text-decoration:underline; }
+
+  /* ---------- Health dashboard ---------- */
+  .kpigrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(158px,1fr)); gap:12px; margin-bottom:14px; }
+  .kpi { position:relative; background:linear-gradient(155deg,var(--card),var(--surface2)); border:1px solid var(--line);
+         border-radius:14px; padding:16px 16px 14px; box-shadow:var(--shadow-card); overflow:hidden;
+         animation:rise .5s cubic-bezier(.2,.7,.2,1) both; }
+  .kpi::before { content:''; position:absolute; top:0; left:0; right:0; height:3px;
+                 background:linear-gradient(90deg,var(--accent),transparent 70%); }
+  .kpi .n { font-family:var(--mono); font-size:31px; font-weight:600; letter-spacing:-.02em; line-height:1; color:var(--fg); }
+  .kpi .l { font-size:11px; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); margin-top:9px; }
+  .kpi .s { font-size:12px; color:var(--muted); margin-top:3px; font-family:var(--mono); }
+  .kpi.good .n { color:var(--pass); } .kpi.warn .n { color:var(--needs); } .kpi.bad .n { color:var(--block); }
+  @keyframes rise { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+  .grid2 { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:14px; margin-bottom:14px; }
+  @media (max-width:680px){ .grid2 { grid-template-columns:1fr; } }
+  .donutwrap { display:flex; align-items:center; gap:20px; }
+  svg.donut { width:138px; height:138px; flex:0 0 auto; }
+  svg.donut circle.arc { transition:stroke-dasharray 1.1s cubic-bezier(.3,.8,.3,1); }
+  .legend { display:flex; flex-direction:column; gap:8px; font-size:13px; min-width:0; flex:1; }
+  .legend .li { display:flex; align-items:center; gap:8px; }
+  .legend .sw { width:11px; height:11px; border-radius:3px; flex:0 0 auto; }
+  .legend .lc { margin-left:auto; font-family:var(--mono); color:var(--muted); }
+  .chartcard svg { display:block; width:100%; height:auto; }
+  .chartcard .hot { cursor:crosshair; }
+  .hbar { margin:10px 0; }
+  .hbar .hh { display:flex; justify-content:space-between; gap:10px; font-size:12px; margin-bottom:4px; }
+  .hbar .hh .nm { color:var(--fg); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+  .hbar .hh .ct { font-family:var(--mono); color:var(--muted); flex:0 0 auto; }
+  .hbar .track { height:9px; border-radius:5px; background:var(--surface2); display:flex; overflow:hidden; min-width:2px; }
+  .hbar .track i { display:block; height:100%; transition:width .8s cubic-bezier(.3,.8,.3,1); }
+  .chip-red { display:inline-block; font-family:var(--mono); font-size:11px; color:var(--block); border:1px solid var(--block);
+              border-radius:6px; padding:2px 8px; margin:4px 5px 0 0; }
+  .seg { display:flex; height:12px; border-radius:6px; overflow:hidden; background:var(--surface2); margin:4px 0 12px; }
+  .seg i { height:100%; transition:width .8s cubic-bezier(.3,.8,.3,1); }
+  .charttip { position:fixed; pointer-events:none; z-index:30; background:var(--fg); color:var(--bg);
+              font-family:var(--mono); font-size:11px; line-height:1.5; padding:6px 9px; border-radius:7px; opacity:0;
+              transition:opacity .12s; white-space:nowrap; box-shadow:0 6px 18px rgba(0,0,0,.28); }
+  .gaprow { display:flex; gap:8px; align-items:flex-start; font-size:12.5px; color:var(--muted);
+            border-top:1px dashed var(--line); padding-top:9px; margin-top:9px; }
+  .gaprow:first-child { border-top:none; padding-top:0; margin-top:0; }
+  .gaprow .gk { color:var(--fg); font-weight:600; flex:0 0 auto; }
+
+  /* plain-language help */
+  .help { font-size:12.5px; color:var(--muted); line-height:1.55; margin:-2px 0 13px; }
+  .help b { color:var(--fg); font-weight:600; }
+  .g { color:var(--pass); font-weight:600; } .a { color:var(--needs); font-weight:600; } .r { color:var(--block); font-weight:600; }
+  .kpi .help { font-size:11px; margin:7px 0 0; }
+  .intro { background:linear-gradient(150deg,var(--surface2),var(--card)); border:1px solid var(--line);
+           border-left:3px solid var(--accent); border-radius:12px; padding:15px 17px; margin-bottom:14px; box-shadow:var(--shadow-card); }
+  .intro h2 { margin:0 0 6px; font-family:var(--serif); font-size:16px; font-weight:600; }
+  .intro p { margin:0; font-size:13px; color:var(--muted); line-height:1.6; }
+  .legend-key { display:flex; flex-wrap:wrap; gap:8px 16px; margin-top:11px; font-size:12.5px; }
+  .legend-key span { display:flex; align-items:center; gap:6px; color:var(--fg); }
+  .legend-key i { width:12px; height:12px; border-radius:3px; flex:0 0 auto; }
+  .glossary { margin-bottom:14px; }
+  .glossary summary { font-weight:600; color:var(--link); font-size:13px; }
+  .glossary dl { margin:12px 0 0; }
+  .glossary dt { font-family:var(--mono); font-size:12px; font-weight:600; color:var(--fg); margin-top:11px; }
+  .glossary dd { margin:3px 0 0; font-size:12.5px; color:var(--muted); line-height:1.55; }
+
+  /* data tables + badges (Health sub-pages) */
+  .dtable-wrap { overflow-x:auto; margin-top:4px; }
+  .dtable { width:100%; border-collapse:collapse; font-size:12.5px; }
+  .dtable th { text-align:left; font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); font-weight:600; padding:7px 14px 7px 0; border-bottom:1px solid var(--line); }
+  .dtable td { padding:9px 14px 9px 0; border-bottom:1px solid var(--line); white-space:nowrap; }
+  .dtable tr:last-child td { border-bottom:none; }
+  .dtable tbody tr:hover td { background:var(--surface2); }
+  .dtable td.mono, .dtable .mono { font-family:var(--mono); font-size:11.5px; }
+  .vb { display:inline-block; font-family:var(--mono); font-size:10.5px; font-weight:600; border:1px solid; border-radius:6px; padding:1px 8px; }
+  .fchips { display:flex; flex-wrap:wrap; gap:7px; align-items:center; margin:2px 0 12px; }
+  .pager { display:flex; gap:10px; align-items:center; margin-top:13px; font-size:12px; color:var(--muted); }
+
+  /* ---------- dark theme (palette re-map; all components read the vars) ---------- */
+  @media (prefers-color-scheme:dark){ :root{
+    --bg:#191410; --card:#221b15; --surface2:#2b231b; --line:#3a3128; --fg:#f4efe9; --muted:#a99e93;
+    --accent:#ffab35; --accent-ink:#241200; --link:#ffc06a; --on-color:#1a1206;
+    --pass:#3fae6b; --needs:#f0a63a; --block:#e0562f; --red:#e0562f;
+    --shadow-card:0 1px 2px rgba(0,0,0,.3), 0 10px 26px -12px rgba(0,0,0,.5);
+  } }
+  :root[data-theme="dark"]{
+    --bg:#191410; --card:#221b15; --surface2:#2b231b; --line:#3a3128; --fg:#f4efe9; --muted:#a99e93;
+    --accent:#ffab35; --accent-ink:#241200; --link:#ffc06a; --on-color:#1a1206;
+    --pass:#3fae6b; --needs:#f0a63a; --block:#e0562f; --red:#e0562f;
+    --shadow-card:0 1px 2px rgba(0,0,0,.3), 0 10px 26px -12px rgba(0,0,0,.5);
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-badge"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 1.6l2.63 3.9 4.62.62-1.6 2.98 1.6 2.98-4.62.62L12 16.6l-2.63-3.9-4.62-.62 1.6-2.98-1.6-2.98 4.62-.62L12 1.6zm0 5.1a2.6 2.6 0 100 5.2 2.6 2.6 0 000-5.2z"/></svg></div>
+      <div><div class="brand-name">Marshal</div><div class="brand-sub">Review Platform</div></div>
+    </div>
+    <nav class="nav">
+      <div class="lbl">Workspace</div>
+      <button class="navitem active" data-view="inbox" onclick="show('inbox')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10"/></svg> Review Queue</button>
+      <button class="navitem" data-view="workerqueue" onclick="show('workerqueue')"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13 2L4.5 13H11l-1 9 8.5-11H12l1-9z"/></svg> Worker Queue</button>
+      <div class="lbl">System Health</div>
+      <button class="navitem" data-view="health" onclick="show('health')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l2.5 6 4-13 2.5 7H21"/></svg> Overview</button>
+      <button class="navitem sub" data-view="verdicts" onclick="show('verdicts')">Verdicts</button>
+      <button class="navitem sub" data-view="escapes" onclick="show('escapes')">Escapes &amp; Ratchet</button>
+      <button class="navitem sub" data-view="invariants" onclick="show('invariants')">Invariants</button>
+    </nav>
+    <div class="side-foot">
+      <span id="worker" class="wpill"><span class="wd"></span> worker …</span>
+      <div id="workerQueue"></div>
+      <div class="env">shadow-safe · <b>advisory</b></div>
+    </div>
+  </aside>
+  <div class="content">
+    <div class="topbar">
+      <div class="page-title" id="pageTitle">Review Queue</div>
+      <span id="status" class="muted"></span>
+    </div>
+    <main id="app"><p class="muted">Loading…</p></main>
+  </div>
+</div>
+<script>
+const $ = (h) => { const t=document.createElement('template'); t.innerHTML=h.trim(); return t.content.firstChild; };
+const esc = (s) => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let current = 'inbox';
+let _inboxPrs = [], _inboxFilter = 'all', _collapsed = new Set(), _group = false;
+let _jobs = {}, _polling = new Set();   // change_ref(head_sha) -> {id,kind,status,result,error}; live poll loops
+let _vRuns = [], _vFilter = 'all', _vPage = 0;                 // Verdicts table: filter + page
+let _invRows = [], _invSev = 'all', _invStatus = 'all';        // Invariants table: severity + status filters
+
+async function getJSON(u){ const r=await fetch(u); if(!r.ok) throw new Error(u+' '+r.status); return r.json(); }
+
+function bar(label, value, max){
+  const pct = max ? Math.round(100*value/max) : 0;
+  return `<div class="barlabel"><span>${esc(label)}</span><span>${value}</span></div>
+          <div class="bar" style="width:${pct}%"></div>`;
+}
+
+function holdCategory(r){
+  r = r || '';
+  if(r==='merge conflict') return 'conflict';
+  if(/^CI /.test(r)) return 'ci';
+  if(/no new commits/.test(r)) return 'reviewed';
+  if(/CIP-10/.test(r)) return 'cip';
+  return 'other';
+}
+
+function matchFilter(p, f){
+  if(f==='all') return true;
+  if(f==='ready') return p.eligible;
+  if(f==='hold') return !p.eligible;
+  return !p.eligible && holdCategory(p.blocked_reason)===f;   // a specific on-hold category
+}
+
+function inboxSummary(prs, filter){
+  const total = prs.length, eligible = prs.filter(p=>p.eligible).length, onhold = total - eligible;
+  const cats = {conflict:0, ci:0, reviewed:0, cip:0, other:0};
+  prs.filter(p=>!p.eligible).forEach(p=>cats[holdCategory(p.blocked_reason)]++);
+  const act = f => filter===f ? ' active' : '';
+  const stat = (f,val,label,cls)=>`<div class="sumstat click${cls||''}${act(f)}" data-f="${f}"><span class="n">${val}</span><span class="l">${label}</span></div>`;
+  const pill = (f,emoji,label,c)=> c ? `<span class="pill click${act(f)}" data-f="${f}">${emoji} ${label} <b>${c}</b></span>` : '';
+  return `<div class="card summary">
+    <div class="sumrow">
+      ${stat('ready', eligible, 'ready to review', ' go')}
+      ${stat('hold', onhold, 'on hold', ' hold')}
+      ${stat('all', total, 'open PRs')}
+      <div class="grouptoggle">
+        <button data-group="0" class="${_group?'':'active'}">Flat</button>
+        <button data-group="1" class="${_group?'active':''}">By repo</button>
+      </div>
+    </div>
+    ${onhold ? `<div class="sumbreak"><span>on hold:</span>
+      ${pill('conflict','🔀','conflict',cats.conflict)}
+      ${pill('ci','🧪','CI',cats.ci)}
+      ${pill('reviewed','✅','reviewed',cats.reviewed)}
+      ${pill('cip','🚫','CIP-10',cats.cip)}
+      ${pill('other','•','other',cats.other)}
+      ${filter!=='all' ? `<span class="clearf" data-f="all">show all ✕</span>` : ''}</div>` : ''}
+  </div>`;
+}
+
+function paintInbox(){
+  const app = document.getElementById('app');
+  app.innerHTML = inboxSummary(_inboxPrs, _inboxFilter);
+  const shown = _inboxPrs.filter(p=>matchFilter(p, _inboxFilter));
+  if(!shown.length){
+    const m = document.createElement('p');
+    m.className = 'muted'; m.style.padding = '4px 2px';
+    m.textContent = 'No PRs match this filter.';
+    app.appendChild(m);
+  } else if(!_group){
+    renderInboxCards(app, shown);                 // flat list (default)
+  } else {
+    // group by repo, preserving the newest-first order (first-seen repo = most recent activity)
+    const groups = new Map();
+    for(const p of shown){ const k = `${p.org}/${p.repo}`; (groups.get(k) || groups.set(k,[]).get(k)).push(p); }
+    for(const [repo, list] of groups){
+      const collapsed = _collapsed.has(repo);
+      const ready = list.filter(p=>p.eligible).length;
+      const hdr = $(`<div class="repohdr" data-repo="${esc(repo)}">
+        <span class="chev">${collapsed?'▸':'▾'}</span>
+        <span class="rn">${esc(repo)}</span>
+        <span class="cnt">${list.length}</span>
+        ${ready?`<span class="rmeta">${ready} ready</span>`:''}</div>`);
+      app.appendChild(hdr);
+      if(!collapsed) renderInboxCards(app, list);
+    }
+  }
+  app.querySelectorAll('[data-f]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const f = el.getAttribute('data-f');
+      _inboxFilter = (_inboxFilter===f && f!=='all') ? 'all' : f;   // click active filter again -> clear
+      paintInbox();
+    });
+  });
+  app.querySelectorAll('[data-group]').forEach(el=>{
+    el.addEventListener('click', ()=>{ _group = el.getAttribute('data-group')==='1'; paintInbox(); });
+  });
+  app.querySelectorAll('[data-repo]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const r = el.getAttribute('data-repo');
+      if(_collapsed.has(r)) _collapsed.delete(r); else _collapsed.add(r);
+      paintInbox();
+    });
+  });
+  animSummary();
+}
+
+function inboxLoading(){
+  return `<div class="loading">
+    <div class="spinner"></div>
+    <div class="lt">Loading open pull requests…</div>
+    <div class="ls">The first load checks GitHub across every bound repo — open PRs, CI status and review
+      markers — so it can take up to ~20 seconds. This is normal, the page has <b>not</b> frozen.
+      Elapsed: <span class="elapsed">0s</span></div>
+  </div>
+  <div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>`;
+}
+
+async function renderInbox(){
+  const app = document.getElementById('app');
+  const fresh = app.dataset.view !== 'inbox';   // first visit or switched back from Health
+  let timer;
+  if(fresh){
+    app.dataset.view = 'inbox';                 // claim now so a 15s refresh mid-load won't re-flash
+    app.innerHTML = inboxLoading();
+    const t0 = performance.now(), el = app.querySelector('.elapsed');
+    timer = setInterval(() => { if(el) el.textContent = Math.round((performance.now()-t0)/1000)+'s'; }, 250);
+  }
+  try {
+    const data = await getJSON('/api/inbox');
+    const prs = data.prs || [];
+    _inboxPrs = prs;
+    if(!prs.length){
+      app.innerHTML = data.github_token
+        ? '<p class="muted">No open PRs across the bound repos.</p>'
+        : '<p class="muted">No PRs — set GITHUB_TOKEN so the dashboard can list open PRs. Bound repos: '+esc((data.repos||[]).join(', '))+'</p>';
+      return;
+    }
+    paintInbox();
+  } catch(e){
+    app.dataset.view = '';                       // let the next attempt show the loading state again
+    throw e;                                      // surfaced by show()'s catch
+  } finally {
+    if(timer) clearInterval(timer);
+  }
+}
+
+function relTime(iso){
+  if(!iso) return '—';
+  const t=Date.parse(iso); if(isNaN(t)) return esc(String(iso).slice(0,10));
+  const s=Math.max(0,(Date.now()-t)/1000);
+  if(s<90) return 'just now';
+  const m=s/60; if(m<60) return Math.round(m)+'m ago';
+  const h=m/60; if(h<24) return Math.round(h)+'h ago';
+  const d=h/24; if(d<30) return Math.round(d)+'d ago';
+  return esc(String(iso).slice(0,10));
+}
+function prAccent(p){
+  if(p.eligible) return 'var(--accent)';
+  const r=p.blocked_reason||'';
+  if(r==='merge conflict' || r==='CI failing') return 'var(--block)';
+  if(r==='CI pending') return 'var(--needs)';
+  if(/no new commits/.test(r)) return 'var(--pass)';
+  return 'var(--muted)';
+}
+function ciChip(ci){
+  if(ci==='success') return '<span class="chip ok">✓ CI</span>';
+  if(ci==='failure') return '<span class="chip bad">✗ CI</span>';
+  if(ci==='pending') return '<span class="chip warn">◷ CI</span>';
+  return '';
+}
+function reviewChip(lr){
+  if(!lr) return '<span class="chip">not reviewed</span>';
+  const v=esc(lr.verdict||'deep'), c=lr.verdict==='pass'?'ok':(lr.verdict==='block'?'bad':'warn');
+  return lr.stale ? `<span class="chip warn">🔄 stale · ${v}</span>` : `<span class="chip ${c}">reviewed · ${v}</span>`;
+}
+
+function renderInboxCards(app, prs){
+  for(const p of prs){
+    const lr = p.last_review;
+    const card = $(`<div class="pr-card${p.eligible?'':' blocked'}" data-sha="${esc(p.head_sha)}" style="--st:${prAccent(p)}">
+      <div class="pr-top">
+        <b class="pr-title"><span class="repotag">${esc(p.repo)}</span> <span class="prnum">#${esc(p.number)}</span> ${esc(p.title)}</b>
+        ${p.eligible ? '<span class="pr-elig" style="color:var(--accent)">● ready to review</span>'
+                     : '<span class="pr-elig" style="color:var(--muted)">🕗 on hold</span>'}
+      </div>
+      <div class="pr-chips">
+        ${p.eligible ? '' : `<span class="chip">${esc(p.blocked_reason||'on hold')}</span>`}
+        ${ciChip(p.ci_state)}
+        ${p.mergeable_state==='dirty' ? '<span class="chip bad">⚠ conflict</span>' : ''}
+        ${reviewChip(lr)}
+        ${p.draft ? '<span class="chip">draft</span>' : ''}
+      </div>
+      <div class="pr-meta"><span>${esc((p.head_sha||'').slice(0,8))}</span><span>updated ${relTime(p.updated_at)}</span></div>
+      <div class="jobrow">
+        <a class="viewlink" href="${esc(p.url)}" target="_blank" rel="noopener">view ↗</a>
+        ${p.eligible?'<button class="btn re-plan">re-review</button><button class="btn deep">deep review</button>':''}
+        <span class="jobstatus"></span>
+      </div>
+    </div>`);
+    app.appendChild(card);
+    if(p.eligible){
+      card.querySelector('.re-plan').addEventListener('click', () => startJob(p.head_sha, p.repo, 'mechanical'));
+      card.querySelector('.deep').addEventListener('click', () => startJob(p.head_sha, p.repo, 'deep'));
+    }
+    // restore state for a job already in flight on this PR (survives the 15s refresh)
+    const j = _jobs[p.head_sha];
+    if(j){
+      applyJobToCard(p.head_sha);
+      if((j.status==='pending' || j.status==='running') && j.id!=null) pollLoop(j.id, p.head_sha, j.kind);
+    }
+  }
+}
+
+const fmt = (n) => (typeof n==='number' ? n.toLocaleString('en-US') : n);
+
+function kpiTile(to, label, sub, cls, help){
+  const isInt = Number.isInteger(to);
+  return `<div class="kpi ${cls||''}">
+    <div class="n" data-to="${to}" data-int="${isInt?1:0}">${isInt?fmt(to):to.toFixed(1)}</div>
+    <div class="l">${esc(label)}</div>${sub?`<div class="s">${esc(sub)}</div>`:''}${help?`<div class="help">${esc(help)}</div>`:''}</div>`;
+}
+
+function donutSVG(segments, centerN, centerL){
+  const total = segments.reduce((a,s)=>a+s.value,0) || 1;
+  const R=48, C=2*Math.PI*R;
+  let acc=0;
+  const arcs = segments.filter(s=>s.value>0).map(s=>{
+    const len=(s.value/total)*C;
+    const el=`<circle class="arc" cx="60" cy="60" r="${R}" style="fill:none;stroke:${s.color}" stroke-width="15"
+      stroke-dasharray="${len.toFixed(2)} ${(C-len).toFixed(2)}" stroke-dashoffset="${(-acc).toFixed(2)}"
+      transform="rotate(-90 60 60)"/>`;
+    acc+=len; return el;
+  }).join('');
+  return `<svg class="donut" viewBox="0 0 120 120" role="img" aria-label="verdict split">
+    <circle cx="60" cy="60" r="48" style="fill:none;stroke:var(--surface2)" stroke-width="15"/>
+    ${arcs}
+    <text x="60" y="58" text-anchor="middle" style="fill:var(--fg);font-family:var(--mono);font-weight:600" font-size="19">${esc(fmt(centerN))}</text>
+    <text x="60" y="74" text-anchor="middle" style="fill:var(--muted)" font-size="8.5" letter-spacing=".6">${esc(centerL)}</text>
+  </svg>`;
+}
+
+function areaChartSVG(ts){
+  if(!ts.length) return '<p class="muted">no runs yet</p>';
+  const W=720,H=224, padL=34,padR=12,padT=14,padB=24, iw=W-padL-padR, ih=H-padT-padB, n=ts.length;
+  const tot = ts.map(d=>(d.pass||0)+(d.needs_human||0)+(d.block||0));
+  const max = Math.max(1, ...tot);
+  const X = i => padL + (n===1 ? iw/2 : iw*i/(n-1));
+  const Y = val => padT + ih*(1 - val/max);
+  let grid='';
+  for(let t=0;t<=4;t++){ const val=max*t/4, y=Y(val);
+    grid+=`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W-padR}" y2="${y.toFixed(1)}" style="stroke:var(--line)"/>`+
+          `<text x="${padL-6}" y="${(y+3).toFixed(1)}" text-anchor="end" font-size="9" style="fill:var(--muted)">${Math.round(val)}</text>`;
+  }
+  let base = ts.map(()=>0), areas='';
+  for(const [key,color] of [['pass','var(--pass)'],['needs_human','var(--needs)'],['block','var(--block)']]){
+    const upper = ts.map((d,i)=> base[i]+(d[key]||0));
+    const top = upper.map((v,i)=>`${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(' ');
+    const bot = base.map((v,i)=>`${X(i).toFixed(1)},${Y(v).toFixed(1)}`).reverse().join(' ');
+    areas += `<polygon points="${top} ${bot}" style="fill:${color};fill-opacity:.72"/>`+
+             `<polyline points="${top}" style="fill:none;stroke:${color}" stroke-width="1.5"/>`;
+    base = upper;
+  }
+  const xi = [...new Set([0, Math.floor((n-1)/2), n-1])];
+  const xlab = xi.map(i=>`<text x="${X(i).toFixed(1)}" y="${H-7}" text-anchor="middle" font-size="9" style="fill:var(--muted)">${esc(ts[i].date.slice(5))}</text>`).join('');
+  const hot = ts.map((d,i)=>{
+    const x0 = i===0?padL:(X(i-1)+X(i))/2, x1 = i===n-1?(W-padR):(X(i)+X(i+1))/2;
+    return `<rect class="hot" x="${x0.toFixed(1)}" y="${padT}" width="${Math.max(0.5,x1-x0).toFixed(1)}" height="${ih}" fill="transparent"
+      data-d="${esc(d.date)}" data-p="${d.pass||0}" data-nh="${d.needs_human||0}" data-b="${d.block||0}" data-cx="${X(i).toFixed(1)}"/>`;
+  }).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="verdicts over time">
+    ${grid}${areas}${xlab}
+    <line class="crosshair" x1="0" y1="${padT}" x2="0" y2="${padT+ih}" style="stroke:var(--accent)" stroke-width="1" opacity="0"/>
+    ${hot}</svg>`;
+}
+
+function escapeBars(eb){
+  if(!eb.length) return '<p class="muted">no escapes recorded</p>';
+  const sorted = [...eb].sort((a,b)=>b.count-a.count);
+  const top = sorted.slice(0,8), rest = sorted.slice(8);
+  const max = Math.max(1, ...top.map(x=>x.count));
+  let html = top.map(x=>{
+    const nm = x.root_cause_class.length>48 ? x.root_cause_class.slice(0,46)+'…' : x.root_cause_class;
+    const w = 100*x.count/max, closedW = x.count? 100*x.closed/x.count : 0;
+    return `<div class="hbar"><div class="hh">
+        <span class="nm" title="${esc(x.root_cause_class)}">${esc(nm)}</span>
+        <span class="ct">${x.count}${x.open?` · <span style="color:var(--needs)">${x.open} open</span>`:''}</span></div>
+      <div class="track" style="width:${w.toFixed(1)}%">
+        <i style="width:${closedW.toFixed(1)}%;background:var(--pass)"></i>
+        <i style="width:${(100-closedW).toFixed(1)}%;background:var(--needs)"></i></div></div>`;
+  }).join('');
+  if(rest.length){ const rc=rest.reduce((a,x)=>a+x.count,0);
+    html += `<div class="muted" style="font-size:12px;margin-top:8px">+ ${rest.length} more root-cause classes · ${rc} escapes</div>`; }
+  return html;
+}
+
+async function renderHealth(){
+  const h = await getJSON('/api/health');
+  const app = document.getElementById('app');
+  const v = h.gate_runs_by_verdict || {};
+  const total = h.gate_runs_total || 0;
+  const human = v.needs_human != null ? v.needs_human : ((v.escalate||0));
+  const passN = v.pass||0, blockN = v.block||0;
+  const outcomes = passN+human+blockN;
+  const passRate = outcomes ? 100*passN/outcomes : 0;
+  const ib = h.invariant_breakdown || {by_status:{},by_severity:{},candidate_red_ids:[]};
+  const st = ib.by_status||{}, sv = ib.by_severity||{};
+  const stTot = Object.values(st).reduce((a,b)=>a+b,0)||1;
+  const svMax = Math.max(1, ...Object.values(sv));
+  const stColor = {active:'var(--pass)','candidate-red':'var(--block)',pending:'var(--needs)'};
+  const svColor = {high:'var(--block)',medium:'var(--needs)',mid:'var(--needs)',low:'var(--muted)'};
+
+  const legend = [
+    ['pass', passN, 'var(--pass)'], ['human review', human, 'var(--needs)'], ['block', blockN, 'var(--block)'],
+  ].map(([k,val,c])=>`<span class="li"><span class="sw" style="background:${c}"></span>${k}
+     <span class="lc">${fmt(val)} · ${outcomes?(100*val/outcomes).toFixed(1):0}%</span></span>`).join('');
+
+  const stSeg = Object.entries(st).map(([k,nn])=>`<i style="width:${(100*nn/stTot).toFixed(1)}%;background:${stColor[k]||'var(--muted)'}" title="${esc(k)}: ${nn}"></i>`).join('');
+  const stLeg = Object.entries(st).map(([k,nn])=>`<span class="li"><span class="sw" style="background:${stColor[k]||'var(--muted)'}"></span>${esc(k)}<span class="lc">${nn}</span></span>`).join('');
+  const svBars = Object.entries(sv).map(([k,nn])=>`<div class="hbar"><div class="hh"><span class="nm">${esc(k)}</span><span class="ct">${nn}</span></div>
+     <div class="track" style="width:${(100*nn/svMax).toFixed(1)}%"><i style="width:100%;background:${svColor[k]||'var(--muted)'}"></i></div></div>`).join('');
+  const red = (ib.candidate_red_ids||[]).map(id=>`<span class="chip-red" title="${esc(id)}">${esc(id)}</span>`).join('');
+
+  app.innerHTML = `
+    <div class="intro">
+      <h2>🤠 How healthy is our review process?</h2>
+      <p><b>Marshal is a robot code reviewer.</b> Every time someone proposes a code change (a
+      “pull request”), Marshal reviews it and reaches a decision. This page is the scoreboard for all
+      those reviews. One colour code is used everywhere:</p>
+      <div class="legend-key">
+        <span><i style="background:var(--pass)"></i><b class="g">green = pass</b> — looks safe</span>
+        <span><i style="background:var(--needs)"></i><b class="a">amber = human review</b> — a person should look</span>
+        <span><i style="background:var(--block)"></i><b class="r">red = block</b> — a problem was found</span>
+      </div>
+    </div>
+
+    <div class="kpigrid">
+      ${kpiTile(total, 'gate runs', `${fmt(passN)} pass · ${fmt(human)} human`, '', 'Total reviews Marshal has ever run.')}
+      ${kpiTile(Number(passRate.toFixed(1)), 'pass rate', `${fmt(blockN)} blocked`, passRate>=50?'good':'warn', 'Share that came back clean. Higher = better.')}
+      ${kpiTile(h.invariant_gate_count||0, 'invariants gated', `${h.ratchet_invariants||0} ratcheted`, '', 'Auto safety-rules checked on every change.')}
+      ${kpiTile(h.escapes_open||0, 'open escapes', `${h.escapes_closed||0} closed`, (h.escapes_open||0)>0?'warn':'good', 'Known bugs not fully fixed yet. Lower = better.')}
+    </div>
+
+    <details class="card glossary"><summary>📖 Plain-English glossary — tap to expand</summary>
+      <dl>
+        <dt>Pull request (PR)</dt><dd>A proposed change to the code, waiting to be merged in.</dd>
+        <dt>Gate run</dt><dd>One Marshal review of one PR. Every gate run ends in a verdict.</dd>
+        <dt>Verdict</dt><dd>The result of a review: <span class="g">pass</span> (safe), <span class="a">human review</span> (a person should decide), or <span class="r">block</span> (a real problem).</dd>
+        <dt>Escape</dt><dd>A real bug that got <em>past</em> a review and was caught later. The thing we most want to avoid.</dd>
+        <dt>Ratchet</dt><dd>Each escape is turned into a permanent test so that exact bug can never come back. The count only goes up — it “ratchets”.</dd>
+        <dt>Invariant</dt><dd>A fixed rule Marshal checks on every change, e.g. “money is never created or destroyed”.</dd>
+      </dl>
+    </details>
+
+    <div class="card chartcard"><h3>Verdicts over time · ${h.verdict_timeseries?h.verdict_timeseries.length:0} active days</h3>
+      <div class="help">Each vertical slice is <b>one day</b>. Taller = more reviews that day. The colours stack:
+        <span class="g">green (pass)</span> at the bottom, <span class="a">amber (human)</span> in the middle,
+        <span class="r">red (block)</span> on top. <b>Hover any day</b> to see its exact numbers.</div>
+      ${areaChartSVG(h.verdict_timeseries||[])}
+      <div class="row" style="margin-top:10px">
+        <span class="tag" style="background:var(--pass)">pass</span>
+        <span class="tag" style="background:var(--needs)">human review</span>
+        <span class="tag" style="background:var(--block)">block</span>
+        <span class="muted" style="margin-left:auto">hover for a day's split</span>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="card"><h3>Gate outcomes</h3>
+        <div class="help">Every review ends in exactly one of three outcomes. A bigger slice = more reviews
+          ended that way. You want a <b class="g">fat green</b> slice and a <b class="r">thin red</b> one.</div>
+        <div class="donutwrap">${donutSVG(
+            [{value:passN,color:'var(--pass)'},{value:human,color:'var(--needs)'},{value:blockN,color:'var(--block)'}],
+            total, 'GATE RUNS')}
+          <div class="legend">${legend}
+            ${v.escalate!=null?`<span class="li muted" style="font-size:11.5px">human = ${fmt(v.escalate)} escalate + ${fmt(human-(v.escalate||0))} needs-human</span>`:''}
+          </div>
+        </div>
+      </div>
+      <div class="card"><h3>Invariant coverage · ${stTot} total</h3>
+        <div class="help">The auto safety-rules Marshal enforces. <b>active</b> = enforced right now;
+          <b class="r">candidate-red</b> = a known gap not enforced yet; <b>pending</b> = being added.
+          “Severity” = how bad it is if that rule ever breaks.</div>
+        <div class="seg">${stSeg}</div>
+        <div class="legend" style="flex-direction:row;flex-wrap:wrap;gap:10px 16px">${stLeg}</div>
+        <h3 style="margin-top:14px">By severity</h3>${svBars}
+        ${red?`<div style="margin-top:8px"><span class="muted" style="font-size:12px">candidate-red gaps (rules we still need to enforce)</span><br>${red}</div>`:''}
+      </div>
+    </div>
+
+    <div class="card"><h3>Ratchet — escapes by root cause</h3>
+      <div class="help">An <b>escape</b> is a real bug that slipped past review and was caught later. Marshal turns
+        each one into a permanent test (a <b>ratchet</b>) so it can’t recur. Each bar is a type of bug;
+        longer = more escapes of that type. <b class="g">Green = fixed &amp; guarded</b>,
+        <b class="a">amber = still open</b>.</div>
+      ${escapeBars(h.escape_breakdown||[])}
+    </div>`;
+
+  app.dataset.view = 'health';
+  wireChart(app);
+  countUp(app);
+}
+
+let _healthKey = null;
+function countUp(app){
+  const key = [...app.querySelectorAll('.kpi .n')].map(e=>e.getAttribute('data-to')).join('|');
+  const animate = key !== _healthKey;   // only animate on real change / first paint, not each 15s refresh
+  _healthKey = key;
+  app.querySelectorAll('.kpi .n').forEach(el=>{
+    const to = parseFloat(el.getAttribute('data-to')), isInt = el.getAttribute('data-int')==='1';
+    const set = (val)=>{ el.textContent = isInt ? fmt(Math.round(val)) : val.toFixed(1); };
+    if(!animate){ set(to); return; }
+    const dur=750, t0=performance.now();
+    (function step(t){ const p=Math.min(1,(t-t0)/dur); set(to*(1-Math.pow(1-p,3))); if(p<1) requestAnimationFrame(step); })(t0);
+  });
+}
+
+function wireChart(app){
+  const svg = app.querySelector('.chartcard svg'); if(!svg) return;
+  let tip = document.getElementById('charttip');
+  if(!tip){ tip=document.createElement('div'); tip.id='charttip'; tip.className='charttip'; document.body.appendChild(tip); }
+  const cross = svg.querySelector('.crosshair');
+  svg.querySelectorAll('.hot').forEach(r=>{
+    r.addEventListener('mousemove', ev=>{
+      const cx = r.getAttribute('data-cx');
+      cross.setAttribute('x1',cx); cross.setAttribute('x2',cx); cross.setAttribute('opacity','1');
+      tip.style.opacity='1';
+      tip.innerHTML = `${esc(r.getAttribute('data-d'))}<br>`+
+        `<span style="color:var(--pass)">■</span> pass ${esc(r.getAttribute('data-p'))}&nbsp; `+
+        `<span style="color:var(--needs)">■</span> human ${esc(r.getAttribute('data-nh'))}&nbsp; `+
+        `<span style="color:var(--block)">■</span> block ${esc(r.getAttribute('data-b'))}`;
+      const w = tip.offsetWidth||140;
+      tip.style.left = Math.min(ev.clientX+14, window.innerWidth-w-8)+'px';
+      tip.style.top = (ev.clientY+16)+'px';
+    });
+  });
+  svg.addEventListener('mouseleave', ()=>{ if(cross) cross.setAttribute('opacity','0'); tip.style.opacity='0'; });
+}
+
+function jobDoneMsg(j){
+  const res = j.result || {};
+  return res.verdict != null
+    ? 'deep: ' + esc(res.verdict) + (res.gate_run_id != null ? ' → run #' + esc(res.gate_run_id) : '')
+    : 're-planned: ' + esc(res.count != null ? res.count : '?') + ' invariants';
+}
+
+// Paint the current card for `sha` from _jobs — the single source of truth, so the
+// state is correct no matter how many times the list re-renders (15s refresh).
+function applyJobToCard(sha){
+  const card = document.querySelector('[data-sha="' + sha + '"]');
+  if(!card) return;
+  const st = card.querySelector('.jobstatus');
+  const btns = card.querySelectorAll('.btn');
+  const j = _jobs[sha];
+  if(!st || !j) return;
+  if(j.status==='pending' || j.status==='running'){
+    btns.forEach(b => b.disabled = true);                 // no double-submit while active
+    st.innerHTML = '<span class="dot '+j.status+'"></span> ' + (j.status==='pending' ? 'queued…' : 'running…');
+  } else if(j.status==='done'){
+    btns.forEach(b => b.disabled = false);
+    st.innerHTML = '<span class="dot done"></span> ' + jobDoneMsg(j);
+  } else {  // failed
+    btns.forEach(b => b.disabled = false);
+    st.innerHTML = '<span class="dot failed"></span> ' + esc(j.error || 'failed');
+  }
+}
+
+async function startJob(sha, repo, kind){
+  if(_jobs[sha] && (_jobs[sha].status==='pending' || _jobs[sha].status==='running')) return;  // already active
+  _jobs[sha] = {kind, status:'pending'};
+  applyJobToCard(sha);
+  try {
+    const r = await fetch('/api/jobs', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({change_ref: sha, repo: repo, kind: kind || 'mechanical'})});
+    if(!r.ok) throw new Error('enqueue '+r.status);
+    const job = await r.json();
+    _jobs[sha].id = job.id;
+    pollLoop(job.id, sha, kind);
+    toast(kind+' review queued · '+repo, 'info', '⏳');
+  } catch(e){ _jobs[sha] = {kind, status:'failed', error:e.message}; applyJobToCard(sha); toast('could not queue: '+e.message, 'bad', '✗'); }
+}
+
+// One poll loop per job id (deduped via _polling), so a card re-render doesn't spawn
+// duplicate loops. Updates _jobs then repaints whichever card currently shows this sha.
+async function pollLoop(id, sha, kind){
+  if(_polling.has(id)) return;
+  _polling.add(id);
+  const tick = async () => {
+    try {
+      const j = await getJSON('/api/jobs/'+id);
+      _jobs[sha] = {id, kind, status:j.status, result:j.result, error:j.error};
+      applyJobToCard(sha);
+      if(j.status==='done' || j.status==='failed'){
+        _polling.delete(id);
+        if(j.status==='done'){
+          const res=j.result||{};
+          toast((res.verdict!=null ? (kind+' → '+res.verdict) : ('re-planned · '+(res.count!=null?res.count:'?')+' invariants')), 'ok', '✓');
+          flashCard(sha, 'flash-ok');
+        } else {
+          toast('failed · '+(j.error||'').slice(0,90), 'bad', '✗');
+          flashCard(sha, 'flash-bad');
+        }
+        return;
+      }
+    } catch(e){
+      _jobs[sha] = {id, kind, status:'failed', error:e.message};
+      applyJobToCard(sha); _polling.delete(id); return;
+    }
+    setTimeout(tick, 1500);
+  };
+  tick();
+}
+
+// ---------- Health sub-pages ----------
+function vColor(v){ return v==='pass'?'var(--pass)':(v==='block'?'var(--block)':'var(--needs)'); }
+function vbadge(v){ const c=vColor(v); return `<span class="vb" style="color:${c};border-color:${c}">${esc(v||'?')}</span>`; }
+
+function lineSVG(vals){   // vals: [{x, y in 0..1}] — a percentage trend line
+  if(!vals.length) return '<p class="muted">no data</p>';
+  const W=720,H=182,padL=36,padR=12,padT=12,padB=22,iw=W-padL-padR,ih=H-padT-padB,n=vals.length;
+  const X=i=>padL+(n===1?iw/2:iw*i/(n-1)), Y=v=>padT+ih*(1-Math.max(0,Math.min(1,v)));
+  let grid=''; for(let t=0;t<=4;t++){ const y=padT+ih*t/4;
+    grid+=`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W-padR}" y2="${y.toFixed(1)}" style="stroke:var(--line)"/>`+
+          `<text x="${padL-6}" y="${(y+3).toFixed(1)}" text-anchor="end" font-size="9" style="fill:var(--muted)">${100-t*25}%</text>`; }
+  const pts=vals.map((d,i)=>`${X(i).toFixed(1)},${Y(d.y).toFixed(1)}`).join(' ');
+  const xi=[...new Set([0,Math.floor((n-1)/2),n-1])];
+  const xlab=xi.map(i=>`<text x="${X(i).toFixed(1)}" y="${H-7}" text-anchor="middle" font-size="9" style="fill:var(--muted)">${esc(vals[i].x)}</text>`).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="display:block;width:100%;height:auto">${grid}`+
+    `<polygon points="${padL},${Y(0).toFixed(1)} ${pts} ${W-padR},${Y(0).toFixed(1)}" style="fill:var(--pass);fill-opacity:.12"/>`+
+    `<polyline points="${pts}" style="fill:none;stroke:var(--pass)" stroke-width="2"/>${xlab}</svg>`;
+}
+function movingPassRate(ts, win){
+  const out=[]; for(let i=0;i<ts.length;i++){ let p=0,tot=0;
+    for(let j=Math.max(0,i-win+1);j<=i;j++){ const d=ts[j]; p+=d.pass||0; tot+=(d.pass||0)+(d.needs_human||0)+(d.block||0); }
+    out.push({x:ts[i].date.slice(5), y:tot?p/tot:0}); } return out;
+}
+function verdictTable(runs){
+  if(!runs.length) return '<p class="muted">no gate runs yet</p>';
+  return `<div class="dtable-wrap"><table class="dtable">
+    <thead><tr><th>run</th><th>PR</th><th>verdict</th><th>when</th><th>change</th></tr></thead><tbody>
+    ${runs.map(r=>`<tr><td class="mono">#${esc(r.id)}</td>
+      <td>${r.repo?`<span class="repotag">${esc(r.repo)}</span>`:''}${r.pr!=null?` <span class="prnum">#${esc(r.pr)}</span>`:'<span class="muted">—</span>'}</td>
+      <td>${vbadge(r.verdict)}</td>
+      <td class="muted">${esc((r.created_at||'').slice(0,16).replace('T',' '))}</td>
+      <td class="mono muted">${esc((r.change_ref||'').slice(0,10))}</td></tr>`).join('')}
+  </tbody></table></div>`;
+}
+function escapeBarsFull(eb){
+  if(!eb.length) return '<p class="muted">no escapes recorded</p>';
+  const sorted=[...eb].sort((a,b)=>b.count-a.count), max=Math.max(1,...sorted.map(x=>x.count));
+  return sorted.map(x=>{
+    const nm=x.root_cause_class.length>74?x.root_cause_class.slice(0,72)+'…':x.root_cause_class;
+    const w=100*x.count/max, closedW=x.count?100*x.closed/x.count:0;
+    return `<div class="hbar"><div class="hh"><span class="nm" title="${esc(x.root_cause_class)}">${esc(nm)}</span>
+      <span class="ct">${x.count}${x.open?` · <span style="color:var(--needs)">${x.open} open</span>`:''}</span></div>
+      <div class="track" style="width:${w.toFixed(1)}%"><i style="width:${closedW.toFixed(1)}%;background:var(--pass)"></i><i style="width:${(100-closedW).toFixed(1)}%;background:var(--needs)"></i></div></div>`;
+  }).join('');
+}
+function invariantTable(rows){
+  if(!rows.length) return '<p class="muted">no invariants registered</p>';
+  const sc={high:'var(--block)',medium:'var(--needs)',mid:'var(--needs)',low:'var(--muted)'};
+  const stc={active:'var(--pass)','candidate-red':'var(--block)',pending:'var(--needs)'};
+  return `<div class="dtable-wrap"><table class="dtable">
+    <thead><tr><th>invariant</th><th>severity</th><th>status</th><th>repo</th><th>executor</th></tr></thead><tbody>
+    ${rows.map(r=>`<tr><td class="mono" title="${esc(r.path||'')} :: ${esc(r.test||'')}">${esc(r.id)}</td>
+      <td><span class="vb" style="color:${sc[r.severity]||'var(--muted)'};border-color:${sc[r.severity]||'var(--muted)'}">${esc(r.severity||'?')}</span></td>
+      <td><span class="vb" style="color:${stc[r.status]||'var(--muted)'};border-color:${stc[r.status]||'var(--muted)'}">${esc(r.status||'?')}</span></td>
+      <td class="muted">${esc(r.repo||'—')}</td><td class="mono muted">${esc(r.executor||'')}</td></tr>`).join('')}
+  </tbody></table></div>`;
+}
+
+function chips(items, active, attr){
+  return items.map(it=>`<span class="pill click${it.v===active?' active':''}" ${attr}="${esc(it.v)}">${esc(it.label)}${it.n!=null?` <b>${it.n}</b>`:''}</span>`).join('');
+}
+function countLineSVG(pts){   // pts:[{x,y}] absolute counts — cumulative growth
+  if(!pts.length) return '<p class="muted">no data</p>';
+  const W=720,H=190,padL=36,padR=12,padT=12,padB=22,iw=W-padL-padR,ih=H-padT-padB,n=pts.length;
+  const max=Math.max(1,...pts.map(p=>p.y));
+  const X=i=>padL+(n===1?iw/2:iw*i/(n-1)), Y=v=>padT+ih*(1-v/max);
+  let grid=''; for(let t=0;t<=4;t++){ const y=padT+ih*t/4, val=Math.round(max*(1-t/4));
+    grid+=`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W-padR}" y2="${y.toFixed(1)}" style="stroke:var(--line)"/>`+
+          `<text x="${padL-6}" y="${(y+3).toFixed(1)}" text-anchor="end" font-size="9" style="fill:var(--muted)">${val}</text>`; }
+  const p=pts.map((d,i)=>`${X(i).toFixed(1)},${Y(d.y).toFixed(1)}`).join(' ');
+  const xi=[...new Set([0,Math.floor((n-1)/2),n-1])];
+  const xlab=xi.map(i=>`<text x="${X(i).toFixed(1)}" y="${H-7}" text-anchor="middle" font-size="9" style="fill:var(--muted)">${esc(pts[i].x)}</text>`).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="display:block;width:100%;height:auto">${grid}`+
+    `<polygon points="${padL},${Y(0).toFixed(1)} ${p} ${(W-padR)},${Y(0).toFixed(1)}" style="fill:var(--accent);fill-opacity:.14"/>`+
+    `<polyline points="${p}" style="fill:none;stroke:var(--accent)" stroke-width="2"/>${xlab}</svg>`;
+}
+const VCAT = { all:()=>true, pass:r=>r.verdict==='pass', human:r=>r.verdict==='needs_human'||r.verdict==='escalate', block:r=>r.verdict==='block' };
+function paintVerdictTable(){
+  const el=document.getElementById('recentRuns'); if(!el) return;
+  const cnt=f=>_vRuns.filter(VCAT[f]).length;
+  const filtered=_vRuns.filter(VCAT[_vFilter]||VCAT.all);
+  const PAGE=25, pages=Math.max(1,Math.ceil(filtered.length/PAGE));
+  if(_vPage>=pages) _vPage=pages-1; if(_vPage<0) _vPage=0;
+  const slice=filtered.slice(_vPage*PAGE,(_vPage+1)*PAGE);
+  const chipHtml=chips([{v:'all',label:'all',n:_vRuns.length},{v:'pass',label:'pass',n:cnt('pass')},
+                        {v:'human',label:'human',n:cnt('human')},{v:'block',label:'block',n:cnt('block')}], _vFilter,'data-vf');
+  el.innerHTML=`<div class="fchips">${chipHtml}</div>${verdictTable(slice)}
+    <div class="pager"><button class="btn" data-vpage="-1" ${_vPage<=0?'disabled':''}>‹ prev</button>
+      <span>page ${_vPage+1} / ${pages} · ${filtered.length} runs</span>
+      <button class="btn" data-vpage="1" ${_vPage>=pages-1?'disabled':''}>next ›</button></div>`;
+  el.querySelectorAll('[data-vf]').forEach(c=>c.addEventListener('click',()=>{ _vFilter=c.getAttribute('data-vf'); _vPage=0; paintVerdictTable(); }));
+  el.querySelectorAll('[data-vpage]').forEach(b=>b.addEventListener('click',()=>{ _vPage+=(+b.getAttribute('data-vpage')); paintVerdictTable(); }));
+}
+function paintInvTable(){
+  const el=document.getElementById('invTable'); if(!el) return;
+  const rows=_invRows.filter(r=>(_invSev==='all'||r.severity===_invSev)&&(_invStatus==='all'||r.status===_invStatus));
+  const sevs=[...new Set(_invRows.map(r=>r.severity).filter(Boolean))];
+  const stats=[...new Set(_invRows.map(r=>r.status).filter(Boolean))];
+  const sevChips=chips([{v:'all',label:'all severities'}].concat(sevs.map(s=>({v:s,label:s,n:_invRows.filter(r=>r.severity===s).length}))), _invSev,'data-isev');
+  const stChips=chips([{v:'all',label:'all statuses'}].concat(stats.map(s=>({v:s,label:s,n:_invRows.filter(r=>r.status===s).length}))), _invStatus,'data-istatus');
+  el.innerHTML=`<div class="fchips">${sevChips}</div><div class="fchips">${stChips}</div>
+    <div class="muted" style="font-size:12px;margin:2px 0 8px">${rows.length} of ${_invRows.length} invariants</div>${invariantTable(rows)}`;
+  el.querySelectorAll('[data-isev]').forEach(c=>c.addEventListener('click',()=>{ _invSev=c.getAttribute('data-isev'); paintInvTable(); }));
+  el.querySelectorAll('[data-istatus]').forEach(c=>c.addEventListener('click',()=>{ _invStatus=c.getAttribute('data-istatus'); paintInvTable(); }));
+}
+
+async function renderVerdicts(){
+  const h=await getJSON('/api/health'); const app=document.getElementById('app'); app.dataset.view='verdicts';
+  const v=h.gate_runs_by_verdict||{}, total=h.gate_runs_total||0;
+  const human=v.needs_human!=null?v.needs_human:(v.escalate||0), passN=v.pass||0, blockN=v.block||0, outcomes=passN+human+blockN;
+  const passRate=outcomes?100*passN/outcomes:0, ts=h.verdict_timeseries||[];
+  const legend=[['pass',passN,'var(--pass)'],['human review',human,'var(--needs)'],['block',blockN,'var(--block)']]
+    .map(([k,val,c])=>`<span class="li"><span class="sw" style="background:${c}"></span>${k}<span class="lc">${fmt(val)} · ${outcomes?(100*val/outcomes).toFixed(1):0}%</span></span>`).join('');
+  app.innerHTML=`
+    <div class="kpigrid">
+      ${kpiTile(total,'gate runs','all-time reviews','','Every verdict Marshal has recorded.')}
+      ${kpiTile(Number(passRate.toFixed(1)),'pass rate',`${fmt(passN)} pass`, passRate>=50?'good':'warn','Share that came back clean.')}
+      ${kpiTile(human,'human review', v.escalate!=null?`${fmt(v.escalate)} escalate`:'', 'warn','Sent to a person to decide.')}
+      ${kpiTile(blockN,'blocked','', blockN?'bad':'good','A real problem was found.')}
+    </div>
+    <div class="grid2">
+      <div class="card"><h3>Outcome split</h3>
+        <div class="donutwrap">${donutSVG([{value:passN,color:'var(--pass)'},{value:human,color:'var(--needs)'},{value:blockN,color:'var(--block)'}],total,'GATE RUNS')}<div class="legend">${legend}</div></div></div>
+      <div class="card"><h3>Pass rate · 7-day moving average</h3>
+        <div class="help">Rolling share of reviews that passed — the review-health trend line.</div>${lineSVG(movingPassRate(ts,7))}</div>
+    </div>
+    <div class="card chartcard"><h3>Verdicts over time · ${ts.length} active days</h3>
+      <div class="help">Each vertical slice is one day; colours stack <span class="g">pass</span> / <span class="a">human</span> / <span class="r">block</span>. <b>Hover</b> any day for its split.</div>
+      ${areaChartSVG(ts)}</div>
+    <div class="card"><h3>Recent gate runs</h3><div id="recentRuns"><p class="muted">loading…</p></div></div>`;
+  wireChart(app); countUp(app);
+  try { const rr=await getJSON('/api/gate-runs?limit=200'); _vRuns=rr.runs||[]; paintVerdictTable(); } catch(e){}
+}
+
+async function renderEscapes(){
+  const h=await getJSON('/api/health'); const app=document.getElementById('app'); app.dataset.view='escapes';
+  const eb=h.escape_breakdown||[]; const open=eb.reduce((a,x)=>a+(x.open||0),0), closed=eb.reduce((a,x)=>a+(x.closed||0),0);
+  app.innerHTML=`
+    <div class="kpigrid">
+      ${kpiTile(open+closed,'escapes total','tracked','','Real bugs that slipped past review.')}
+      ${kpiTile(open,'still open','', open?'warn':'good', open?'awaiting a permanent check':'all guarded')}
+      ${kpiTile(closed,'closed & ratcheted','','good','Fixed and locked with a test.')}
+      ${kpiTile(h.ratchet_invariants||0,'ratchet invariants',`${h.invariant_gate_count||0} gated`,'','Permanent checks the ratchet added.')}
+    </div>
+    <div class="card"><h3>Ratchet growth · cumulative escapes over time</h3>
+      <div class="help">Every escape becomes a permanent check. This running total is the ratchet population — steady growth means the safety net keeps expanding.</div>
+      <div id="escGrowth"><p class="muted">loading…</p></div></div>
+    <div class="card"><h3>Escapes by root cause · all ${eb.length} classes</h3>
+      <div class="help">Each bar is a class of escaped bug. <b class="g">Green = closed &amp; guarded</b>, <b class="a">amber = still open</b>; longer = more escapes of that type.</div>
+      ${escapeBarsFull(eb)}</div>`;
+  countUp(app);
+  try { const t=await getJSON('/api/escape-timeline'); const el=document.getElementById('escGrowth');
+        if(el) el.innerHTML=countLineSVG((t.timeline||[]).map(d=>({x:d.date.slice(5), y:d.cumulative}))); } catch(e){}
+}
+
+async function renderInvariants(){
+  const h=await getJSON('/api/health'); const app=document.getElementById('app'); app.dataset.view='invariants';
+  const ib=h.invariant_breakdown||{by_status:{},by_severity:{},candidate_red_ids:[]};
+  const st=ib.by_status||{}, sv=ib.by_severity||{}, stTot=Object.values(st).reduce((a,b)=>a+b,0)||1, svMax=Math.max(1,...Object.values(sv).concat([1]));
+  const stColor={active:'var(--pass)','candidate-red':'var(--block)',pending:'var(--needs)'}, svColor={high:'var(--block)',medium:'var(--needs)',mid:'var(--needs)',low:'var(--muted)'};
+  const stSeg=Object.entries(st).map(([k,n])=>`<i style="width:${(100*n/stTot).toFixed(1)}%;background:${stColor[k]||'var(--muted)'}" title="${esc(k)}: ${n}"></i>`).join('');
+  const stLeg=Object.entries(st).map(([k,n])=>`<span class="li"><span class="sw" style="background:${stColor[k]||'var(--muted)'}"></span>${esc(k)}<span class="lc">${n}</span></span>`).join('');
+  const svBars=Object.entries(sv).map(([k,n])=>`<div class="hbar"><div class="hh"><span class="nm">${esc(k)}</span><span class="ct">${n}</span></div><div class="track" style="width:${(100*n/svMax).toFixed(1)}%"><i style="width:100%;background:${svColor[k]||'var(--muted)'}"></i></div></div>`).join('');
+  const red=(ib.candidate_red_ids||[]).map(id=>`<span class="chip-red" title="${esc(id)}">${esc(id)}</span>`).join('');
+  app.innerHTML=`
+    <div class="kpigrid">
+      ${kpiTile(h.invariant_gate_count||0,'invariants gated','enforced now','','Auto rules checked on every change.')}
+      ${kpiTile(st['active']||0,'active','','good','Enforced right now.')}
+      ${kpiTile(st['candidate-red']||0,'candidate-red','', (st['candidate-red']||0)?'bad':'good','Known gap, not yet enforced.')}
+      ${kpiTile(st['pending']||0,'pending','','warn','Being added.')}
+    </div>
+    <div class="grid2">
+      <div class="card"><h3>By status · ${stTot} total</h3><div class="seg">${stSeg}</div>
+        <div class="legend" style="flex-direction:row;flex-wrap:wrap;gap:10px 16px">${stLeg}</div>
+        ${red?`<div style="margin-top:10px"><span class="muted" style="font-size:12px">candidate-red (gaps to enforce)</span><br>${red}</div>`:''}</div>
+      <div class="card"><h3>By severity</h3>${svBars}</div>
+    </div>
+    <div class="card"><h3>All invariants</h3><div id="invTable"><p class="muted">loading…</p></div></div>`;
+  countUp(app);
+  try { const inv=await getJSON('/api/invariants'); _invRows=inv.invariants||[]; paintInvTable(); } catch(e){}
+}
+
+// ---------- Worker Queue page (animated live pipeline) ----------
+let _wqTimer=null, _wqData=null, _wqFetchedAt=0, _wqSig='';
+function wqSig(d){ const w=d.worker||{}; return (w.state||'')+'|'+((w.jobs||[]).map(j=>j.id+':'+j.status+':'+(j.change_ref||'')).join(',')); }
+function prFor(j, map){
+  const s=j.change_ref||''; if(!s) return null; if(map[s]) return map[s];
+  for(const k in map){ if(k.startsWith(s) || s.startsWith(k)) return map[k]; }
+  return null;
+}
+async function wqFetch(){
+  const w=await getJSON('/api/worker');
+  if(!_inboxPrs.length){ try{ const inbox=await getJSON('/api/inbox'); _inboxPrs=inbox.prs||[]; }catch(e){} }
+  const map={}; _inboxPrs.forEach(p=>{ if(p.head_sha) map[p.head_sha]=p; });
+  _wqData={worker:w, prMap:map}; _wqFetchedAt=performance.now();
+}
+function wqUpdateElapsed(){
+  const delta=(performance.now()-_wqFetchedAt)/1000;
+  document.querySelectorAll('.wqp-elapsed[data-base]').forEach(el=>{
+    el.textContent=fmtDur((parseFloat(el.getAttribute('data-base'))||0)+delta);
+  });
+}
+function wqHero(j, p){
+  const num = p ? '#'+esc(p.number) : '';
+  const title = p ? esc(p.title) : '<span class="muted">(not in the open PR queue — showing commit only)</span>';
+  const url = p ? esc(p.url) : '';
+  const meta = [ (j.change_ref||'').slice(0,10), p?('updated '+relTime(p.updated_at)):'', p&&p.draft?'draft':'' ].filter(Boolean);
+  return `<div class="card wqp-hero">
+    <div class="wqp-flow">
+      <div class="wqp-node worker"><div class="wqp-badge">★</div><div class="wqp-nl">Marshal<br>worker</div></div>
+      <div class="wqp-wire"><span></span><span></span><span></span><span></span></div>
+      <div class="wqp-node gh"><div class="wqp-ghico">⎇</div><div class="wqp-nl">GitHub<br>${esc(j.repo)}</div></div>
+    </div>
+    <div class="wqp-target">
+      <div class="wqp-scan"></div>
+      <div class="wqp-ttop"><span class="repotag">${esc(j.repo)}</span> <span class="prnum">${num}</span>
+        <span class="chip warn">${esc(j.kind)} review</span> <span class="chip ana">◉ analyzing</span> ${p?ciChip(p.ci_state):''}${p&&p.mergeable_state==='dirty'?'<span class="chip bad">⚠ conflict</span>':''}</div>
+      <div class="wqp-title">${title}${url?` <a class="viewlink" href="${url}" target="_blank" rel="noopener">open on GitHub ↗</a>`:''}</div>
+      <div class="wqp-meta">${meta.map(m=>`<span>${esc(m)}</span>`).join('')}</div>
+      <div class="wqp-status">▸ ${esc(j.kind)} analysis in progress · <b class="wqp-elapsed" data-base="${j.elapsed_s||0}">${fmtDur(j.elapsed_s||0)}</b></div>
+      <div class="proc-bar"><i></i></div>
+    </div>
+  </div>`;
+}
+function wqWait(j, p, pos){
+  const num = p ? ' #'+esc(p.number) : '';
+  const title = p ? esc(p.title) : esc((j.change_ref||'').slice(0,10))+' — pending review';
+  return `<div class="wqp-wait" style="animation-delay:${(pos-1)*0.06}s">
+    <span class="qpos">${pos}</span>
+    <div class="wqp-winfo"><span class="repotag">${esc(j.repo)}</span><span class="prnum">${num}</span> <span class="wqp-wtitle">${title}</span></div>
+    <span class="wqp-wind"><span class="wqp-wdot"></span><span class="wqp-wdot"></span><span class="wqp-wdot"></span> waiting</span>
+  </div>`;
+}
+function wqBody(d){
+  const w=d.worker||{}, jobs=w.jobs||[], map=d.prMap||{};
+  const running=jobs.find(j=>j.status==='running'), pending=jobs.filter(j=>j.status==='pending');
+  let hero;
+  if(running){ hero = wqHero(running, prFor(running,map)); }
+  else if(w.state==='down'){ hero = `<div class="card wqp-empty down"><div class="wqp-eico">🔴</div><div><b>Worker is down</b><div class="muted">No worker is processing reviews. Jobs stay queued until a worker runs.</div></div></div>`; }
+  else { hero = `<div class="card wqp-empty"><div class="wqp-eico rest">★</div><div><b>Worker idle</b><div class="muted">No active review right now — the worker is waiting for the next job.</div></div></div>`; }
+  const queue = pending.length
+    ? `<div class="card"><h3>Up next · ${pending.length} waiting in line</h3>${pending.map((j,i)=>wqWait(j,prFor(j,map),i+1)).join('')}</div>`
+    : (running ? `<div class="muted" style="padding:2px 2px">No other reviews queued.</div>` : '');
+  return hero + queue;
+}
+async function renderWorkerQueuePage(){
+  const app=document.getElementById('app'); app.dataset.view='workerqueue';
+  await wqFetch();
+  _wqSig = wqSig(_wqData);
+  app.innerHTML = `<div id="wqBody">${wqBody(_wqData)}</div>`;
+  if(_wqTimer) clearInterval(_wqTimer);
+  let tick=0;
+  _wqTimer=setInterval(async ()=>{
+    if(current!=='workerqueue'){ clearInterval(_wqTimer); _wqTimer=null; return; }   // self-cleanup on leave
+    tick++; wqUpdateElapsed();                                    // live 1s elapsed tick (no re-render)
+    if(tick%4===0){ try{ await wqFetch(); const sig=wqSig(_wqData);
+      if(sig!==_wqSig){ _wqSig=sig; const b=document.getElementById('wqBody'); if(b) b.innerHTML=wqBody(_wqData); } // re-render only when the job set changes
+    }catch(e){} }
+  }, 1000);
+}
+
+const VIEWS = {
+  inbox:       { title:'Review Queue',      render:renderInbox },
+  workerqueue: { title:'Worker Queue',      render:renderWorkerQueuePage },
+  health:      { title:'Health Overview',   render:renderHealth },
+  verdicts:    { title:'Verdicts',          render:renderVerdicts },
+  escapes:     { title:'Escapes & Ratchet', render:renderEscapes },
+  invariants:  { title:'Invariant Coverage', render:renderInvariants },
+};
+let _lastView = null;
+async function show(tab){
+  current = tab;
+  const v = VIEWS[tab] || VIEWS.inbox;
+  document.querySelectorAll('.navitem').forEach(b => b.classList.toggle('active', b.dataset.view===tab));
+  document.getElementById('pageTitle').textContent = v.title;
+  const st = document.getElementById('status');
+  try {
+    st.textContent='refreshing…'; await v.render(); st.textContent='';
+    if(tab!==_lastView){                              // animate only on a real view switch, not the 15s refresh
+      const a=document.getElementById('app'); a.classList.remove('view-enter'); void a.offsetWidth; a.classList.add('view-enter');
+    }
+    _lastView=tab;
+  }
+  catch(e){ document.getElementById('app').innerHTML='<p class="muted">Error: '+esc(e.message)+'</p>'; st.textContent=''; }
+}
+
+function fmtDur(s){ s=Math.round(s); if(s<60) return s+'s'; const m=Math.floor(s/60); if(m<60) return m+'m'; return Math.floor(m/60)+'h'+(m%60)+'m'; }
+
+function toast(msg, type, icon){
+  let box=document.getElementById('toasts');
+  if(!box){ box=document.createElement('div'); box.id='toasts'; box.className='toasts'; document.body.appendChild(box); }
+  const t=document.createElement('div'); t.className='toast '+(type||'info');
+  t.innerHTML=(icon?`<span class="ti">${icon}</span>`:'')+'<span>'+esc(msg)+'</span>';
+  box.appendChild(t);
+  setTimeout(()=>{ t.classList.add('out'); setTimeout(()=>t.remove(), 320); }, 4200);
+}
+function flashCard(sha, cls){
+  const card=document.querySelector('[data-sha="'+sha+'"]'); if(!card) return;
+  card.classList.remove('flash-ok','flash-bad'); void card.offsetWidth; card.classList.add(cls);
+}
+let _sumKey=null;
+function animSummary(){
+  const ns=[...document.querySelectorAll('.sumstat .n')];
+  const key=ns.map(e=>e.textContent).join('|');
+  if(key===_sumKey) return;                 // unchanged (e.g. a filter click) -> don't re-animate
+  _sumKey=key;
+  ns.forEach(el=>{ const to=parseInt(el.textContent,10); if(isNaN(to)) return;
+    const t0=performance.now(), dur=650;
+    (function step(t){ const p=Math.min(1,(t-t0)/dur); el.textContent=Math.round(to*(1-Math.pow(1-p,3))); if(p<1) requestAnimationFrame(step); })(t0);
+  });
+}
+
+async function refreshWorker(){
+  const el = document.getElementById('worker');
+  try {
+    const w = await getJSON('/api/worker');
+    const q = w.queue || {};
+    el.className = 'wpill '+w.state;
+    // keep the pill short — it lives in the narrow sidebar; the running job's kind/#id/
+    // elapsed is shown in the queue panel below, so don't repeat it here.
+    el.innerHTML = '<span class="wd"></span> worker '+w.state + (q.pending ? ' · '+q.pending+' queued' : '');
+    el.title = w.state==='down'
+      ? 'No worker is processing jobs — re-review / deep review stay queued until a worker is running.'
+      : (w.seconds_ago!=null ? 'last heartbeat '+Math.round(w.seconds_ago)+'s ago' : '');
+    renderWorkerQueue(w.jobs || []);
+  } catch(e){
+    el.className = 'wpill down';
+    el.innerHTML = '<span class="wd"></span> worker ?';
+    el.title = 'cannot reach /api/worker: '+esc(e.message);
+    renderWorkerQueue([]);
+  }
+}
+
+function renderWorkerQueue(jobs){
+  const wq = document.getElementById('workerQueue'); if(!wq) return;
+  if(!jobs.length){ wq.innerHTML=''; return; }
+  const rows = jobs.slice(0,5).map(j=>{
+    const who = `<span class="wq-name">${esc(j.kind)} #${esc(j.id)}${j.repo?' · '+esc(j.repo):''}</span>`;
+    if(j.status==='running'){
+      const t = (j.elapsed_s!=null) ? '<span class="wq-el">'+fmtDur(j.elapsed_s)+'</span>' : '';
+      return `<div class="wq-job running"><div class="wq-line"><span class="wq-ico">▸</span> ${who}${t}</div><div class="proc-bar"><i></i></div></div>`;
+    }
+    return `<div class="wq-job pending"><span class="wq-dot"></span> ${who}</div>`;
+  }).join('');
+  wq.innerHTML = rows + (jobs.length>5 ? `<div class="wq-more">+ ${jobs.length-5} more queued</div>` : '');
+}
+
+show('inbox');
+refreshWorker();
+setInterval(() => show(current), 15000);   // live: poll list/health every 15s
+setInterval(refreshWorker, 5000);          // worker liveness every 5s
+</script>
+</body>
+</html>

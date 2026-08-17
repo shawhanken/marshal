@@ -17,6 +17,7 @@ import yaml
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from marshal_core.config import db_url as _db_url, marshal_home as _marshal_home
 from marshal_core.knowledge.models import ensure_schema
 from marshal_core.knowledge.store import Store
 from marshal_core.onboard.estimate import estimate_cost
@@ -128,20 +129,6 @@ def _replace_skill_link(link: Path, source: Path) -> None:
         os.replace(temp, link)
     finally:
         temp.unlink(missing_ok=True)
-
-
-def _marshal_home() -> Path:
-    env = os.environ.get("MARSHAL_HOME")
-    if env:
-        return Path(env)
-    # cli.py 在 <home>/src/marshal_core/cli.py
-    return Path(__file__).resolve().parents[2]
-
-
-def _db_url() -> str:
-    if os.environ.get("MARSHAL_DB"):
-        return os.environ["MARSHAL_DB"]
-    return f"sqlite:///{_marshal_home() / 'marshal.db'}"
 
 
 def _session():
@@ -318,7 +305,8 @@ def cmd_review_verify(a) -> int:
 
 
 def _detect_skill_rev() -> str:
-    # prompt-as-program: record the full checkout revision and flag dirty skill files.
+    # prompt-as-program: record the full checkout revision and flag tracked or
+    # untracked skill files as dirty provenance.
     root = Path(__file__).resolve().parents[2]
     try:
         rev = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"],
@@ -326,14 +314,23 @@ def _detect_skill_rev() -> str:
         if rev.returncode != 0 or not rev.stdout.strip():
             return ""
         dirty = subprocess.run(
-            ["git", "-C", str(root), "diff", "--quiet", "HEAD", "--",
+            ["git", "-C", str(root), "status", "--porcelain",
+             "--untracked-files=all", "--",
              ".agents/skills/marshal", ".claude/skills/marshal"],
             capture_output=True, text=True, timeout=10)
-        suffix = "-dirty" if dirty.returncode != 0 else ""
+        suffix = "-dirty" if dirty.stdout else ""
         return rev.stdout.strip() + suffix
     except Exception:
         return ""
 
+
+def _optional_json_list(raw: str, field: str):
+    if not raw:
+        return None
+    value = json.loads(raw)
+    if not isinstance(value, list):
+        raise ValueError(f"{field} must be a JSON list")
+    return value
 
 def cmd_review_run_open(a) -> int:
     # ⑧ 开一次 review trace run: 落 provenance, 返回 run_id 供后续 review-verify 关联。
@@ -343,8 +340,32 @@ def cmd_review_run_open(a) -> int:
         run = Store(s).open_review_run(
             change_ref=a.change_ref, repo=a.repo, mode=a.mode,
             host=a.host, model=a.model, skill_rev=skill_rev,
-            context_ref=a.context_ref)
-        return _emit({"run_id": run.id, "skill_rev": skill_rev})
+            context_ref=a.context_ref,
+            expected_lenses=_optional_json_list(a.expected_lenses_json, "expected_lenses"),
+            expected_commands=_optional_json_list(a.expected_commands_json, "expected_commands"),
+            expected_external_scans=_optional_json_list(
+                a.expected_external_scans_json, "expected_external_scans"))
+        return _emit({"run_id": run.id, "skill_rev": skill_rev, "status": run.status})
+    finally:
+        s.close()
+
+
+def cmd_review_run_close(a) -> int:
+    """Close a trace only after recording its reproducible evidence manifest."""
+    manifest = json.loads(a.evidence_json)
+    s = _session()
+    try:
+        run = Store(s).close_review_run(a.run_id, a.status, manifest)
+        return _emit({"run_id": run.id, "status": run.status,
+                      "evidence": run.evidence or {}})
+    finally:
+        s.close()
+
+
+def cmd_review_run_show(a) -> int:
+    s = _session()
+    try:
+        return _emit(Store(s).review_run_snapshot(a.run_id))
     finally:
         s.close()
 
@@ -867,6 +888,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     rro = sub.add_parser("review-run-open")
     rro.add_argument("--change-ref", dest="change_ref", required=True)
+    rro.add_argument("--expected-lenses-json", default="")
+    rro.add_argument("--expected-commands-json", default="")
+    rro.add_argument("--expected-external-scans-json", default="")
     rro.add_argument("--repo", default="")
     rro.add_argument("--mode", default="regular", choices=["regular", "deep"])
     rro.add_argument("--host", default="")
@@ -874,6 +898,16 @@ def build_parser() -> argparse.ArgumentParser:
     rro.add_argument("--skill-rev", dest="skill_rev", default="")
     rro.add_argument("--context-ref", dest="context_ref", default="")
     rro.set_defaults(func=cmd_review_run_open)
+
+    rrc = sub.add_parser("review-run-close")
+    rrc.add_argument("--run-id", dest="run_id", type=int, required=True)
+    rrc.add_argument("--status", required=True, choices=["complete", "degraded"])
+    rrc.add_argument("--evidence-json", dest="evidence_json", required=True)
+    rrc.set_defaults(func=cmd_review_run_close)
+
+    rrs = sub.add_parser("review-run-show")
+    rrs.add_argument("--run-id", dest="run_id", type=int, required=True)
+    rrs.set_defaults(func=cmd_review_run_show)
 
     fv = sub.add_parser("finding-verdict")
     fv.add_argument("--finding-id", dest="finding_id", type=int, required=True)

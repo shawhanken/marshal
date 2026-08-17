@@ -41,8 +41,8 @@ tier 定**基集**(有序前缀):
    "$PY" -m marshal_core.cli review-verify --votes-json '[{"key":...,"severity":...,"votes":[{"refuted":true,"lens":"reachability"},...]}]'
    ```
    → `{survived, killed, unverified, verdict}`。规则:**仅严格多数 uphold 才存活**;平票/多数 refute → 杀(似是而非的误报被砍);无投票 → unverified(degraded,保留待人看)。计票不看 lens(`review-verify` 仍纯数 refuted/uphold);lens 只为多样化提问 + 回流归因。
-
-   (可选 ⑧ review trace)审前 `review-run-open --change-ref <sha> --repo <repo> --mode regular|deep --host claude --model <模型id>` 拿 `run_id`;上面 `review-verify` 追加 `--run-id <id> --findings-json '[{key,title,claim,location,lens},…]'` 即把每条发现的裁决链落库;用户终审后 `finding-verdict --finding-id <id> --verdict accepted|rejected|modified` 补录金标注。不带 `--run-id` 行为不变。
-4. 最终汇入流 A 第 5 步:用 `review-verify` 的 `verdict` 与 `survived`(`killed` 不再上报,但**误报回流改进对应视角 prompt**,误报≠逃逸不进棘轮)。
+   （⑧ review trace，默认启用）审前用 `review-run-open --change-ref <sha> ... --expected-lenses-json '[...]' --expected-commands-json '[...]' --expected-external-scans-json '[...]'` 保存 `run_id` 和不可变的审计计划；上面 `review-verify` 追加 `--run-id <id> --findings-json '[{key,title,claim,location,lens},…]'` 落库。用户终审必须在 close 之前用 `finding-verdict` 补录；关闭后的 run（包括 finding verdict）不可再写入。
+   审计完成后用 `review-run-close --run-id <id> --status complete|degraded --evidence-json <manifest>` 关闭 trace，并用 `review-run-show --run-id <id>` 回读。manifest 至少记录 head/base/tree、platform/worktree/toolchain/context_ref、closure/scout/prove/invariant 状态、计划内 expected/returned/missing lenses、计划内命令和外部扫描状态。
+   `complete` 只允许所有步骤、计划内命令、预定 lens 和外部扫描都已完成；缺失 lens、失败或不可用资源必须 `degraded`。外部扫描 `unavailable`/`degraded` 时省略 `findings`（或置 null），绝不能写成 `findings: 0`；只有实际完成的扫描才可记录整数 findings。两种 close 状态都必须使用 closure/scout/prove/invariant 四阶段和 open 时的计划；complete 还必须有 40/64 位十六进制 head/base/tree SHA、完整复现字段、argv/整数 exit_code/log_ref；pass 必须 exit 0 且无失败测试；关闭后不得重新写入。
 5. 也可叠加 `/code-review ultra`(云端多 agent)作为额外一路视角喂进 quorum;它需人触发/计费,**skill 自己拉不起**——拉不到就少一路并**显式标 degraded**,绝不假装跑过。
 - 如存活的高 severity 发现落在**已合并代码**,提议转流 C(棘轮)。

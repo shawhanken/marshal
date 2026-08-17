@@ -22,6 +22,7 @@ skill, and the plan-gate MCP server).
   - [2. The GitHub Action (managed repos)](#2-the-github-action-managed-repos)
   - [3. Reviewer skills (Claude Code + Codex CLI)](#3-reviewer-skills-claude-code--codex-cli)
   - [4. The plan-gate MCP server](#4-the-plan-gate-mcp-server)
+  - [5. The dashboard](#5-the-dashboard-review-queue--health--worker)
 - [Configuration](#configuration)
 - [Repository layout](#repository-layout)
 - [Development](#development)
@@ -90,6 +91,8 @@ python -m marshal_core.cli <command> [options]
 | `review-quorum --findings-json ...` | Aggregate multi-perspective review findings — low-confidence noise is dropped, high-severity conclusions are escalated |
 | `review-verify --votes-json ...` | Adjudicate each finding with a skeptic vote; with `--run-id` (+ optional `--findings-json`), also record each finding's adjudication chain into the review trace |
 | `review-run-open --change-ref ... --host ... --model ...` | Open a review-trace run: record who (host/model/skill git rev) reviewed what; returns the `run_id` to pass to `review-verify` |
+| `review-run-close --run-id ... --status complete\|degraded --evidence-json ...` | Close a trace with a reproducible evidence manifest; `complete` is rejected while a lens, command, or external scan is unresolved |
+| `review-run-show --run-id ...` | Read back the run provenance, evidence manifest, and finding-level adjudication chain |
 | `finding-verdict --finding-id ... --verdict accepted\|rejected\|modified` | Record the human's final verdict on a traced finding — the ground-truth label |
 | `spec-source --ref CIP-3` | Resolve a spec reference to its location in the domain source |
 | `spec-requirements --ref CIP-3 --spec-root <repo>` | Extract RFC2119 requirements from the spec text |
@@ -191,6 +194,51 @@ The knowledge-core tables are created automatically on startup. For a durable
 store, point `MARSHAL_DB` at any SQLAlchemy URL (e.g.
 `postgresql://user:pass@host/marshal`). Additive trace-schema migrations are
 applied automatically. Run it behind your usual reverse proxy / process manager.
+
+### Review evidence manifests
+
+Review traces are opened before the multi-lens review and closed afterwards. The
+close command records references rather than copying logs, so another reviewer
+can reproduce the exact scope and distinguish a completed check from a missing
+one:
+
+```bash
+run=$(python -m marshal_core.cli review-run-open \
+  --change-ref <head-sha> --repo node --mode deep --host codex --model <model> \
+  --expected-lenses-json '["correctness"]' \
+  --expected-commands-json '["invariants"]' \
+  --expected-external-scans-json '["almanax"]' \
+  | jq -r .run_id)
+python -m marshal_core.cli review-run-close --run-id "$run" --status degraded \
+  --evidence-json '{
+    "head_sha": "<head-sha>", "base_sha": "<base-sha>", "tree_sha": "<tree-sha>",
+    "platform": "linux-x86_64", "worktree": "/tmp/review-worktree",
+    "toolchain": "python3.12", "context_ref": "node@<head-sha>",
+    "steps": {
+      "closure": {"status": "complete"},
+      "scout": {"status": "degraded", "reason": "agent stalled"},
+      "prove": {"status": "complete"},
+      "invariant": {"status": "complete"}
+    },
+    "lenses": {
+      "expected": ["correctness"], "returned": [], "missing": ["correctness"]
+    },
+    "commands": [
+      {"name": "invariants", "status": "not_run", "reason": "agent stalled"}
+    ],
+    "external_scans": [
+      {"name": "almanax", "status": "unavailable", "reason": "quota reached"}
+    ]
+  }'
+```
+
+The manifest should include commit/tree identifiers, closure/scout/prove and
+invariant statuses, expected/returned/missing lenses, command/test counts with
+log references, and external-scan status. An external scan with
+`status=complete` must provide an integer `findings` count. For
+`unavailable`/`degraded` scans, omit `findings` (or use null): unavailable is
+not the same as zero findings. Use `review-run-show` to compare two reports.
+A closed run is terminal: its head SHA must match the run change_ref, and its evidence and findings cannot be overwritten afterwards. Complete manifests must contain exactly closure/scout/prove/invariant stages, a partitioned expected/returned/missing lens set, executable command metadata with a zero exit status, and at least one external-scan record.
 
 Planned event context is persisted in the knowledge core, while the in-memory
 cache is only a fast path. `/plan` and `/results` can therefore use different
@@ -359,12 +407,80 @@ The calling agent maps a plan to concept `touches`; the tool runs the
 deterministic `plan-cost` computation and returns the same neutral cost picture
 described above (verdict always `cost-only`).
 
+### 5. The dashboard (review queue + health + worker)
+
+The brain service also serves a self-contained web dashboard at `/`:
+
+- **Review Queue** — open PRs across the bound repos (`$MARSHAL_REPOS`, default
+  `cowboyinc/{node,cbfs,cbss,cowboy,runner}` + `shawhanken/marshal`), newest-first,
+  each tagged eligible / on-hold (merge conflict, CI failing or pending,
+  already-reviewed, CIP-10). "Already-reviewed" mirrors the `marshal-pr-sweep`
+  marker (`<!-- marshal-deep sha=… -->`). Eligible PRs get **re-review**
+  (mechanical) and **deep review** buttons; filter/group by repo.
+- **Health** — gate-output metrics, verdicts-over-time, escape ratchet and
+  invariant coverage, with plain-language help.
+- **Worker status** — a header pill showing whether a job worker is running
+  (`down` / `idle` / `busy · <job> · <elapsed>`) and the queue depth.
+
+It adds these endpoints alongside the brain's (`POST/GET /api/jobs` sit behind an
+optional token):
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /` | the single-page app |
+| `GET /api/inbox` | the repo-first open-PR queue (needs `GITHUB_TOKEN`) |
+| `GET /api/health` | metrics + escape/invariant breakdowns |
+| `GET /api/worker` | worker liveness (down/idle/busy) + queue depth |
+| `GET /api/runs/{id}`, `GET /api/escapes` | a gate run's evidence / escape breakdown |
+
+**Start the server** (the same app as the brain service; `GITHUB_TOKEN` powers the
+PR queue):
+
+```bash
+MARSHAL_DB="sqlite:///$(pwd)/marshal.db" \
+  GITHUB_TOKEN="$(gh auth token)" \
+  uvicorn marshal_core.adapters.api:app --port 8790
+# then open http://127.0.0.1:8790
+```
+
+**Start a worker.** The re-review / deep-review buttons enqueue jobs that a worker
+must process — without one they stay `pending` (the pill shows **worker down**).
+Run a worker in a second process against the same DB:
+
+```bash
+# mechanical re-review only:
+MARSHAL_DB="sqlite:///$(pwd)/marshal.db" python -m marshal_core.worker
+
+# deep-capable (headless `claude -p` runs a full /marshal review per job):
+MARSHAL_DB="sqlite:///$(pwd)/marshal.db" bash scripts/run_deep_worker.sh
+```
+
+`run_deep_worker.sh` grants a **scoped `--allowedTools`** list (not
+`--dangerously-skip-permissions`) so the headless review can run its tools and
+write the verdict, and points `CARGO_TARGET_DIR` at a persistent, **isolated**
+shared target so a repo's cargo/proptest invariants build incrementally instead of
+cold-compiling in every throwaway worktree — pre-warm it once for a large repo
+(`CARGO_TARGET_DIR=~/.marshal/cargo-target cargo test --workspace --no-run`). A
+deep review runs `claude` with broad tool access inside a throwaway checkout, so
+treat its verdicts as advisory.
+
+Set `MARSHAL_JOB_TOKEN` to require an `X-Marshal-Token` header on `POST /api/jobs`;
+the dashboard's own buttons are same-origin and unauthenticated, so keep the server
+on localhost / behind auth if you leave the token unset.
+
 ## Configuration
 
 | Environment variable | Default | Description |
 |---|---|---|
 | `MARSHAL_HOME` | The current source-repo root | Where `.claude/skills`, `.agents/skills`, and the default database are located |
 | `MARSHAL_DB` | `sqlite:///$MARSHAL_HOME/marshal.db` | The SQLAlchemy database URL — used by both the CLI and the brain service |
+| `GITHUB_TOKEN` | _(unset)_ | Powers the dashboard's open-PR queue and the worker's PR-identity backfill |
+| `MARSHAL_REPOS` | `cowboyinc/{node,cbfs,cbss,cowboy,runner}`, `shawhanken/marshal` | Comma-separated `org/repo` list the Review Queue watches |
+| `MARSHAL_JOB_TOKEN` | _(unset)_ | If set, `POST/GET /api/jobs` require an `X-Marshal-Token` header |
+| `MARSHAL_CLAUDE_ALLOWED_TOOLS` | _(unset)_ | Scoped tool allowlist passed to headless `claude -p` for deep reviews |
+| `MARSHAL_CLAUDE_PERMISSION_MODE` | _(unset)_ | Optional `--permission-mode` for the deep-review `claude -p` |
+| `CARGO_TARGET_DIR` | `~/.marshal/cargo-target` (in `run_deep_worker.sh`) | Shared cargo target so invariant builds are incremental, not cold |
+| `MARSHAL_DEEP_TIMEOUT_S` | `1800` (`3600` in `run_deep_worker.sh`) | Hard timeout per deep review |
 
 `ci-scan` requires `zizmor`. Installing `.[ci]` is recommended; when it is
 absent, the command returns non-zero and emits `degraded: true`, pushing the
@@ -375,7 +491,10 @@ gate above it into manual judgment so nothing passes falsely.
 | Path | Contents |
 |---|---|
 | `src/marshal_core/` | Domain-agnostic core: CLI, contracts, knowledge core, review aggregation, GitHub adapter, orchestrator, invariant gate, reporter |
-| `src/marshal_core/adapters/api.py` | The brain: FastAPI app (`/webhook`, `/plan`, `/results`) |
+| `src/marshal_core/adapters/api.py` | The brain: FastAPI app (`/webhook`, `/plan`, `/results`) + the dashboard (`/`, `/api/*`) |
+| `src/marshal_core/adapters/static/index.html` | The self-contained dashboard single-page app |
+| `src/marshal_core/worker.py` | The review-job worker (mechanical re-review + headless-`claude` deep review) |
+| `scripts/run_deep_worker.sh` | Launches a deep-capable worker (scoped tool allowlist + shared cargo target) |
 | `src/marshal_core/executor/reporter.py` | The CI reporter the GitHub Action runs |
 | `src/marshal_core/mcp_server.py` | The plan-gate MCP server exposing the `marshal_plan_review` tool |
 | `src/marshal_pack_cowboy/` | The Cowboy Domain Pack: risk-classification rules, invariant catalog, spec resolution, CI-security checks |

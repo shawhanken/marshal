@@ -15,3 +15,5 @@ marshal.db
 
 # working docs — kept local, not published to the remote (see README)
 docs/
+
+.worktrees/

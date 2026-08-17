@@ -1,6 +1,7 @@
 """知识核持久模型 — schema 领域无关 (domain/severity 取值由领域包定义)。"""
+import warnings
 from datetime import datetime, timezone
-from sqlalchemy import String, Integer, JSON, DateTime, Boolean, Float, inspect, text
+from sqlalchemy import String, Integer, JSON, DateTime, Boolean, Float, UniqueConstraint, inspect, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -13,26 +14,54 @@ def ensure_schema(engine) -> None:
     """Create tables and apply the additive migrations used by the trace store."""
     Base.metadata.create_all(engine)
     inspector = inspect(engine)
-    if "escape_registry" not in inspector.get_table_names():
-        return
-    existing = {column["name"] for column in inspector.get_columns("escape_registry")}
-    additions = {"fix_ref": "VARCHAR", "missed_by_run_id": "INTEGER"}
-    missing = [(name, sql_type) for name, sql_type in additions.items()
-               if name not in existing]
-    if not missing:
-        return
+    additions_by_table = {
+        "escape_registry": {"fix_ref": "VARCHAR", "missed_by_run_id": "INTEGER",
+                            "introduced_at_ts": "DATETIME"},
+        # These columns were added after review tracing shipped. Keep this
+        # migration additive so existing sweep databases remain readable.
+        "review_run": {"status": "VARCHAR", "evidence": "JSON"},
+    }
     with engine.begin() as conn:
-        for name, sql_type in missing:
-            try:
+        for table, additions in additions_by_table.items():
+            if table not in inspector.get_table_names():
+                continue
+            existing = {column["name"] for column in inspector.get_columns(table)}
+            for name, sql_type in additions.items():
+                if name in existing:
+                    continue
+                try:
+                    conn.execute(text(
+                        f"ALTER TABLE {table} ADD COLUMN {name} {sql_type}"))
+                except OperationalError as exc:
+                    # A second worker may have applied this additive migration
+                    # after the inspector snapshot. Ignore only that race,
+                    # never arbitrary migration failures.
+                    message = str(exc).lower()
+                    if "duplicate column" not in message and "already exists" not in message:
+                        raise
+        if "review_run" in inspector.get_table_names():
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_review_run_status ON review_run (status)"
+            ))
+        if "review_finding" in inspector.get_table_names():
+            duplicate_count = conn.execute(text(
+                "SELECT COUNT(*) FROM ("
+                "SELECT run_id, key FROM review_finding "
+                "WHERE key IS NOT NULL GROUP BY run_id, key HAVING COUNT(*) > 1"
+                ")"
+            )).scalar_one()
+            if duplicate_count:
+                warnings.warn(
+                    "review_finding has duplicate (run_id, key) rows; "
+                    "unique index deferred to preserve legacy evidence",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+            else:
                 conn.execute(text(
-                    f"ALTER TABLE escape_registry ADD COLUMN {name} {sql_type}"))
-            except OperationalError as exc:
-                # A second worker may have applied this additive migration after
-                # the inspector snapshot. Ignore only that race, never arbitrary
-                # migration failures.
-                message = str(exc).lower()
-                if "duplicate column" not in message and "already exists" not in message:
-                    raise
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_review_finding_run_key "
+                    "ON review_finding (run_id, key)"
+                ))
 
 
 def _now() -> datetime:
@@ -81,6 +110,7 @@ class EscapeRegistry(Base):
     domain_pack: Mapped[str] = mapped_column(String, index=True, default="cowboy")
     discovered_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     introduced_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    introduced_at_ts: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     root_cause_class: Mapped[str] = mapped_column(String, default="")
     change_ref: Mapped[str | None] = mapped_column(String, nullable=True)
     description: Mapped[str] = mapped_column(String, default="")
@@ -89,6 +119,27 @@ class EscapeRegistry(Base):
     status: Mapped[str] = mapped_column(String, default="open")
     fix_ref: Mapped[str | None] = mapped_column(String, nullable=True)
     missed_by_run_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class Meta(Base):
+    __tablename__ = "meta"
+    key: Mapped[str] = mapped_column(String, primary_key=True)
+    value: Mapped[str] = mapped_column(String, default="")
+
+
+class ReviewJob(Base):
+    __tablename__ = "review_job"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    change_ref: Mapped[str] = mapped_column(String, index=True)
+    repo: Mapped[str] = mapped_column(String, default="node")
+    kind: Mapped[str] = mapped_column(String, default="mechanical")   # 'mechanical' | 'deep'
+    status: Mapped[str] = mapped_column(String, default="pending")    # pending|running|done|failed
+    requested_by: Mapped[str] = mapped_column(String, default="dashboard")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    error: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class PlannedEvent(Base):
@@ -118,6 +169,8 @@ class ReviewRun(Base):
     model: Mapped[str] = mapped_column(String, default="")
     skill_rev: Mapped[str] = mapped_column(String, default="")
     context_ref: Mapped[str] = mapped_column(String, default="")
+    status: Mapped[str] = mapped_column(String, default="open", index=True)
+    evidence: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
@@ -126,6 +179,7 @@ class ReviewFinding(Base):
     是唯一的金标注 (accepted|rejected|modified), 由 finding-verdict 命令事后补录;
     空串 = 未终审, 不预填。"""
     __tablename__ = "review_finding"
+    __table_args__ = (UniqueConstraint("run_id", "key", name="uq_review_finding_run_key"),)
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     run_id: Mapped[int] = mapped_column(Integer, index=True)
     key: Mapped[str] = mapped_column(String, index=True)
