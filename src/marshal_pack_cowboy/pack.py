@@ -34,6 +34,37 @@ _REPO_HIGH_PREFIXES = {
         # 访问控制(auth) / 完整性元数据(manifest) / 跨 repo 共享类型(cowboy-ras)
         ("crypto/", "erasure/", "placement/", "auth/", "manifest/", "cowboy-ras/"),
         "cbfs integrity/confidentiality surface (crypto/erasure/placement/auth/manifest)"),
+    "cbqs": (
+        # 交付正确性(at-least-once/终态生命周期/safe-prefix)+ 签名 receipt hash-chain
+        # (gated on durable commit)+ StreamGrant 授权 + 权威 broker 状态 / chain 实例绑定。
+        # broker 只存密文,机密性在 client/protocol,不在本 repo —— 故此处是「正确性+授权」面。
+        ("crates/cbqsd/src/receipt", "crates/cbqsd/src/authorization",
+         "crates/cbqsd/src/standard_append", "crates/cbqsd/src/standard_delivery",
+         "crates/cbqsd/src/standard_group", "crates/cbqsd/src/standard_lane",
+         "crates/cbqsd/src/broker_state", "crates/cbqsd/src/storage",
+         "crates/cbqsd/src/transport/chain"),
+        "cbqs delivery-correctness / signed-receipt-chain / StreamGrant-auth surface (CIP-39)"),
+    "cowboy-protocol": (
+        # 共识 wire 编解码 / 规范向量 / 共享类型 / CBSS 加密 —— 字节兼容性即共识:
+        # 任何编码 drift = 两实现算出不同 tx hash / 接受不同字节 = 链分叉。
+        ("crates/cowboy-protocol-codec/", "crates/cowboy-protocol-types/",
+         "crates/cowboy-protocol-cbss-crypto/", "bindings/cowboy-crypto/"),
+        "cowboy-protocol consensus codec / wire-types / crypto (byte-compat = consensus)"),
+    "gateway": (
+        # x402 支付:签名/编码/双花预留守卫 + 链上结算 + 凭证解析 —— 缺陷=重复结算/免费服务。
+        ("crates/gateway-x402/", "crates/gateway-server/src/payment_state",
+         "crates/gateway-server/src/chain_payments", "crates/gateway-server/src/x402",
+         "crates/gateway-server/src/mpp", "crates/gateway-chain/"),
+        "gateway x402 payment / settlement / chain / credential surface"),
+    "runner": (
+        # 结果验证(N-of-M 共识/确定性字节比对/罚没)+ 门限 BLS-VRF + 派工 + 沙箱隔离 +
+        # TEE/密钥 —— 缺陷=认证错误 off-chain 结果 / 罚没诚实 runner / 逃逸沙箱。
+        ("crates/result-verifier/", "crates/runner-consensus/",
+         "crates/runner-node/src/canonical_result_parity", "crates/job-dispatcher/",
+         "crates/runner-container/src/sandbox", "crates/runner-container/src/oci",
+         "crates/runner-container/src/runc", "crates/tee-verifier/",
+         "crates/runner-tee/", "crates/cowboy-nitro-signer/"),
+        "runner verification / consensus / dispatch / sandbox / TEE-key surface (CIP-2)"),
 }
 
 _LOW_SUFFIXES = (".md",)
@@ -483,6 +514,82 @@ _CBSS_INVARIANTS = [
                               "prop_any_t_subset_recovers"]),
 ]
 
+# cbqs 领域不变量 (住 cbqs 仓)。CIP-39 交付正确性核心 (at-least-once): 一个非终态的
+# 租约过期**不得**把消费组 safe-prefix 推过仍可重投的记录 —— 否则 safe prefix 越过一条
+# 未确认交付的消息 = 静默丢消息。真实单测, 已在 cbqs head 验证通过 (running 1 test; ok)。
+# 碰交付/终态/游标逻辑 (standard_delivery/standard_group/standard_lane) 时触发。
+_CBQS_PREFIXES = ("crates/cbqsd/src/standard_delivery",
+                  "crates/cbqsd/src/standard_group",
+                  "crates/cbqsd/src/standard_lane")
+_CBQS_INVARIANTS = [
+    InvariantDef(id="cbqs.at_least_once_safe_prefix_holds", domain="messaging", spec_ref="CIP-39",
+                 executor_kind="test", location_repo="cbqs",
+                 location_path="crates/cbqsd/src/standard_delivery.rs",
+                 location_test=("standard_delivery::tests::"
+                                "nonterminal_lease_expiry_does_not_advance_past_the_redeliverable_record"),
+                 severity="high",
+                 run_command=["cargo", "test", "-p", "cbqsd", "--lib",
+                              "nonterminal_lease_expiry_does_not_advance_past_the_redeliverable_record"]),
+]
+
+# cowboy-protocol 领域不变量 (住 cowboy-protocol 仓)。共识核心: 交易的 signing-preimage /
+# signing-hash / 提交 wire 编码与 canyon node 输出**字节相同** (COW-2360 hard gate)。任何 drift
+# = 两实现算出不同 tx hash / 接受不同字节 = 硬分叉。真实 golden-vector 测试, 已在 head 验证通过。
+# 注意: 整档 `#![cfg(feature="signing")]`, run_command **必须**带 `--features signing`,否则跑 0 test
+# 假绿 (执行器的 ≥1-test-ran 检查会把 0-test 当 degraded 暴露, 非误 PASS)。碰 codec 时触发。
+_PROTOCOL_PREFIXES = ("crates/cowboy-protocol-codec/",)
+_PROTOCOL_INVARIANTS = [
+    InvariantDef(id="protocol.tx_canonical_bytes_identical_to_node", domain="consensus", spec_ref="WP",
+                 executor_kind="conformance-vector", location_repo="cowboy-protocol",
+                 location_path="crates/cowboy-protocol-codec/tests/golden_vectors.rs",
+                 location_test="golden_vectors_byte_identity", severity="high",
+                 run_command=["cargo", "test", "-p", "cowboy-protocol-codec",
+                              "--features", "signing", "--test", "golden_vectors",
+                              "golden_vectors_byte_identity"]),
+]
+
+# gateway 领域不变量 (住 gateway 仓)。x402 支付安全核心: serve-before-settle 双花守卫 —— 同一
+# 支付凭证 (nonce key) 一旦 in-flight 被 claim, 第二个并发同凭证请求必须被拒 (不同 key 仍可成功),
+# 否则同一签名支付可在链上 nonce 消费前被服务/结算两次 = 直接资金损失。确定性单测 (无 sleep/网络),
+# 已在 head 验证通过。碰 x402 支付面时触发。
+_GATEWAY_PREFIXES = ("crates/gateway-x402/",)
+_GATEWAY_INVARIANTS = [
+    InvariantDef(id="gateway.x402_no_double_serve_before_settle", domain="payments", spec_ref="x402",
+                 executor_kind="test", location_repo="gateway",
+                 location_path="crates/gateway-x402/src/lib.rs",
+                 location_test="tests::reservation_blocks_concurrent_same_key", severity="high",
+                 run_command=["cargo", "test", "-p", "gateway-x402",
+                              "tests::reservation_blocks_concurrent_same_key"]),
+]
+
+# runner 领域不变量 (住 runner 仓)。off-chain 结果验证安全核心: N-of-M MajorityVote 在同意门槛
+# 未达 (3 中仅 2 一致而要求全体) 时**必须**拒绝认证 (返回 ThresholdNotMet), 否则缺乏所需共识的
+# 错误 off-chain 结果会被当 canonical 结算上链。确定性 (纯内存, 无网络/docker/TEE), 已验证通过。
+# 碰 result-verifier 时触发。
+_RUNNER_PREFIXES = ("crates/result-verifier/",)
+_RUNNER_INVARIANTS = [
+    InvariantDef(id="runner.majority_vote_rejects_below_threshold", domain="verification", spec_ref="CIP-2",
+                 executor_kind="test", location_repo="runner",
+                 location_path="crates/result-verifier/src/verifier.rs",
+                 location_test="verifier::tests::test_majority_vote_threshold_not_met_fails", severity="high",
+                 run_command=["cargo", "test", "-p", "result-verifier",
+                              "verifier::tests::test_majority_vote_threshold_not_met_fails"]),
+]
+
+# 阶段二 (review-hazard) 不变量:JS/TS 仓 (wallet, store-admin) 没有 cargo/pytest 可跑的机械锚,
+# 只能由对抗 review 裁定 (invariant_able=False)。这些**不进** list_invariants (否则机械门禁会去
+# 跑一条无 run_command 的检查 → 假 degraded);它们的「牙」在上面 SECURITY_HAZARDS 的同源条目
+# (security_hazards() 按 when_paths 触发, 把 prompt 注入 review 并升 high)。此处只登记为 registry
+# 记录 (进 all_invariant_defs → 供 reconcile seed, 让 dashboard 如实显示覆盖)。location_test 留空。
+_REVIEW_INVARIANTS = [
+    InvariantDef(id="wallet.no_blind_signing_intent_binding", domain="security", spec_ref="",
+                 executor_kind="review-hazard", location_repo="wallet",
+                 location_path="src/lib/sign-binding.js", location_test="", severity="high"),
+    InvariantDef(id="store-admin.privileged_op_server_authz", domain="security", spec_ref="",
+                 executor_kind="review-hazard", location_repo="store-admin",
+                 location_path="src/services/approval-orchestrator.ts", location_test="", severity="high"),
+]
+
 
 # 安全信任边 / 危险点 (架构: 否定性·对抗性属性,不可往返化)。
 # 教训源 = almanax 在 node #470 标出的 Critical:`cbss_encrypt_secret` 把 wrap key
@@ -525,6 +632,37 @@ SECURITY_HAZARDS = [
                 "公开量且无 per-message 随机数 —— 若是,任何观察者可复算密钥解密,机密性"
                 "破裂 (IND-CPA 失败)。这是否定性属性:roundtrip 不变量无法表达,必须在此 "
                 "review 中裁定 (参 node #470 almanax Critical)。"),
+        invariant_able=False),
+    SecurityHazard(
+        id="wallet-blind-signing-intent-binding",
+        # wallet 是 JS,机械执行器跑不了 —— 只能阶段二裁定。签名摘要绑定 (sign-binding.js)、
+        # 审批 UI (popup/approve.js)、window.cowboy provider (content/inject, service-worker)。
+        when_paths=("src/lib/sign-binding", "src/popup/approve", "src/popup/popup",
+                    "src/background/service-worker", "src/content/inject",
+                    "src/content/content-script"),
+        title="wallet blind-signing: the signature the user approves must be bound to the intent shown",
+        prompt=("默认怀疑钓鱼/盲签。任何经 window.cowboy 发起的签名请求:(1) 被签的摘要必须"
+                "**域分离** —— personal-message 签名绝不能被重放为一笔交易 (transfer/deploy/"
+                "execute),反之亦然;(2) 弹窗必须把真实解码后的交易/消息展示给用户,绝不签"
+                "用户看不懂的 opaque bytes;(3) dApp 不得诱导钱包对任意 32 字节 hash 盲签。"
+                "这是否定性属性 (盲签 oracle / 意图错绑),roundtrip 不变量表达不了,必须"
+                "review 裁定 (参 esc-20260616-wallet-blind-signmessage)。"),
+        invariant_able=False),
+    SecurityHazard(
+        id="store-admin-privileged-op-authz-and-db-boundary",
+        # store-admin 是 TS,机械执行器跑不了 —— 只能阶段二裁定。特权审批/签名/发布 +
+        # read-cap 校验 + README 明定「不得写 explorer chain-truth DB」的边界。
+        when_paths=("src/services/signing", "src/services/read-cap-verifier",
+                    "src/services/approval-orchestrator", "src/services/review-workflow",
+                    "src/services/republish", "src/services/labs-publisher",
+                    "src/server", "src/app"),
+        title="store-admin privileged review/approval/signing must be server-authorized and stay in its DB boundary",
+        prompt=("默认怀疑越权/边界破坏。检查:(1) approval / publish / sign / republish 等特权"
+                "操作是否在**服务端**校验调用者的 reviewer 授权 —— 不能只靠 UI/客户端门控,"
+                "不能有 submission/member id 的 IDOR;(2) read-cap-verifier 是否真的门住访问,"
+                "不被绕过;(3) store-admin 是否**从不写 explorer chain-truth DB** (README 硬边界),"
+                "签名适配器不得越权铸造链上真相。否定性属性 (broken access control / 边界越界),"
+                "roundtrip 表达不了,必须 review 裁定。"),
         invariant_able=False),
 ]
 
@@ -603,6 +741,18 @@ class CowboyPack:
         elif scope.get("repo") == "cbss":
             if any(p.startswith(_CBSS_PREFIXES) for p in paths):
                 out.extend(_CBSS_INVARIANTS)
+        elif scope.get("repo") == "cbqs":
+            if any(p.startswith(_CBQS_PREFIXES) for p in paths):
+                out.extend(_CBQS_INVARIANTS)
+        elif scope.get("repo") == "cowboy-protocol":
+            if any(p.startswith(_PROTOCOL_PREFIXES) for p in paths):
+                out.extend(_PROTOCOL_INVARIANTS)
+        elif scope.get("repo") == "gateway":
+            if any(p.startswith(_GATEWAY_PREFIXES) for p in paths):
+                out.extend(_GATEWAY_INVARIANTS)
+        elif scope.get("repo") == "runner":
+            if any(p.startswith(_RUNNER_PREFIXES) for p in paths):
+                out.extend(_RUNNER_INVARIANTS)
         seen = {i.id for i in out}
         for cid in self.contracts_hit(scope):
             for inv_id in _CONTRACT_BY_ID[cid].verify_invariants:
@@ -615,6 +765,27 @@ class CowboyPack:
         # ignored test would read as a false `degraded`. They activate when their
         # body lands and `pending` is flipped to False.
         return [i for i in out if not i.pending]
+
+    def all_invariant_defs(self) -> list[InvariantDef]:
+        """The **complete** catalog across every repo, independent of any scope —
+        the source of truth `list_invariants` samples from on demand. Used by the
+        reconcile path to seed the DB registry with catalog invariants that no PR
+        has happened to exercise yet (so a newly-onboarded repo reads its real
+        coverage instead of 0). Deduped by id, first occurrence wins. `pending`
+        skeletons are included here (the caller decides to skip them) so the full
+        catalog stays inspectable."""
+        out: list[InvariantDef] = []
+        seen: set[str] = set()
+        for coll in (_ECON_INVARIANTS, list(_CONTRACT_INVARIANTS.values()),
+                     _STATE_INVARIANTS, _CIP7_INVARIANTS, _RAS_ROUTE_INVARIANTS,
+                     _PVM_INVARIANTS, _CRYPTO_INVARIANTS, _CBFS_INVARIANTS,
+                     _CBSS_INVARIANTS, _CBQS_INVARIANTS, _PROTOCOL_INVARIANTS,
+                     _GATEWAY_INVARIANTS, _RUNNER_INVARIANTS, _REVIEW_INVARIANTS):
+            for inv in coll:
+                if inv.id not in seen:
+                    out.append(inv)
+                    seen.add(inv.id)
+        return out
 
     def classify(self, scope: dict) -> str:
         return self.classify_detailed(scope)["tier"]
@@ -731,6 +902,8 @@ class CowboyPack:
         all_defs = (list(_ECON_INVARIANTS) + list(_CONTRACT_INVARIANTS.values())
                     + list(_STATE_INVARIANTS) + list(_CRYPTO_INVARIANTS)
                     + list(_CBFS_INVARIANTS) + list(_CBSS_INVARIANTS)
+                    + list(_CBQS_INVARIANTS) + list(_PROTOCOL_INVARIANTS)
+                    + list(_GATEWAY_INVARIANTS) + list(_RUNNER_INVARIANTS)
                     + list(_CIP7_INVARIANTS) + list(_RAS_ROUTE_INVARIANTS))
         for inv in all_defs:
             # pending (not-yet-enforcing) invariants must not inflate coverage.

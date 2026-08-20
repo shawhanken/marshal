@@ -7,6 +7,7 @@ from contextlib import contextmanager
 import difflib
 import json
 import os
+import re
 import subprocess
 import sys
 import tomllib
@@ -17,6 +18,7 @@ import yaml
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from marshal_core.config import db_url as _db_url, marshal_home as _marshal_home
 from marshal_core.knowledge.models import ensure_schema
 from marshal_core.knowledge.store import Store
 from marshal_core.onboard.estimate import estimate_cost
@@ -128,20 +130,6 @@ def _replace_skill_link(link: Path, source: Path) -> None:
         os.replace(temp, link)
     finally:
         temp.unlink(missing_ok=True)
-
-
-def _marshal_home() -> Path:
-    env = os.environ.get("MARSHAL_HOME")
-    if env:
-        return Path(env)
-    # cli.py 在 <home>/src/marshal_core/cli.py
-    return Path(__file__).resolve().parents[2]
-
-
-def _db_url() -> str:
-    if os.environ.get("MARSHAL_DB"):
-        return os.environ["MARSHAL_DB"]
-    return f"sqlite:///{_marshal_home() / 'marshal.db'}"
 
 
 def _session():
@@ -318,7 +306,8 @@ def cmd_review_verify(a) -> int:
 
 
 def _detect_skill_rev() -> str:
-    # prompt-as-program: record the full checkout revision and flag dirty skill files.
+    # prompt-as-program: record the full checkout revision and flag tracked or
+    # untracked skill files as dirty provenance.
     root = Path(__file__).resolve().parents[2]
     try:
         rev = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"],
@@ -326,14 +315,23 @@ def _detect_skill_rev() -> str:
         if rev.returncode != 0 or not rev.stdout.strip():
             return ""
         dirty = subprocess.run(
-            ["git", "-C", str(root), "diff", "--quiet", "HEAD", "--",
+            ["git", "-C", str(root), "status", "--porcelain",
+             "--untracked-files=all", "--",
              ".agents/skills/marshal", ".claude/skills/marshal"],
             capture_output=True, text=True, timeout=10)
-        suffix = "-dirty" if dirty.returncode != 0 else ""
+        suffix = "-dirty" if dirty.stdout else ""
         return rev.stdout.strip() + suffix
     except Exception:
         return ""
 
+
+def _optional_json_list(raw: str, field: str):
+    if not raw:
+        return None
+    value = json.loads(raw)
+    if not isinstance(value, list):
+        raise ValueError(f"{field} must be a JSON list")
+    return value
 
 def cmd_review_run_open(a) -> int:
     # ⑧ 开一次 review trace run: 落 provenance, 返回 run_id 供后续 review-verify 关联。
@@ -343,8 +341,32 @@ def cmd_review_run_open(a) -> int:
         run = Store(s).open_review_run(
             change_ref=a.change_ref, repo=a.repo, mode=a.mode,
             host=a.host, model=a.model, skill_rev=skill_rev,
-            context_ref=a.context_ref)
-        return _emit({"run_id": run.id, "skill_rev": skill_rev})
+            context_ref=a.context_ref,
+            expected_lenses=_optional_json_list(a.expected_lenses_json, "expected_lenses"),
+            expected_commands=_optional_json_list(a.expected_commands_json, "expected_commands"),
+            expected_external_scans=_optional_json_list(
+                a.expected_external_scans_json, "expected_external_scans"))
+        return _emit({"run_id": run.id, "skill_rev": skill_rev, "status": run.status})
+    finally:
+        s.close()
+
+
+def cmd_review_run_close(a) -> int:
+    """Close a trace only after recording its reproducible evidence manifest."""
+    manifest = json.loads(a.evidence_json)
+    s = _session()
+    try:
+        run = Store(s).close_review_run(a.run_id, a.status, manifest)
+        return _emit({"run_id": run.id, "status": run.status,
+                      "evidence": run.evidence or {}})
+    finally:
+        s.close()
+
+
+def cmd_review_run_show(a) -> int:
+    s = _session()
+    try:
+        return _emit(Store(s).review_run_snapshot(a.run_id))
     finally:
         s.close()
 
@@ -537,6 +559,79 @@ def cmd_metrics(a) -> int:
         return _emit(Store(s).metrics())
     finally:
         s.close()
+
+
+def _verify_anchor(inv, repo_root: Path) -> tuple[bool, str]:
+    """Run an invariant's anchor `run_command` in its repo checkout; green iff the
+    process exits 0 AND ≥1 test actually ran/passed (a `running 0 tests` / 0-passed
+    result is a false green — the very phantom the pending flag guards against)."""
+    if not inv.run_command:
+        return False, "no run_command"
+    if not repo_root.is_dir():
+        return False, f"repo checkout missing: {repo_root}"
+    try:
+        p = subprocess.run(inv.run_command, cwd=str(repo_root),
+                           capture_output=True, text=True, timeout=1800)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return False, f"exec error: {e}"
+    out = p.stdout + p.stderr
+    m = re.search(r"result: ok\. (\d+) passed", out)
+    if p.returncode == 0 and m and int(m.group(1)) >= 1:
+        return True, f"{m.group(1)} passed"
+    return False, f"exit={p.returncode}" + (f" ({m.group(1)} passed)" if m else " (no passing test)")
+
+
+def cmd_reconcile_invariants(a) -> int:
+    """Seed catalog invariants the demand-driven DB registry is missing, so every
+    audited repo reads its real coverage instead of 0. Dry-run by default."""
+    import marshal_core.pr_inbox as pr_inbox
+    defs = _PACK.all_invariant_defs()
+    workspace = Path(a.workspace)
+    roots = _parse_repo_roots(a.repo_root)
+
+    def _root(repo):
+        return Path(roots[repo]) if repo in roots else workspace / repo
+
+    allow_ids = None
+    verify = {}
+    if a.verify:
+        s0 = _session()
+        try:
+            existing = {r["id"] for r in Store(s0).invariant_rows()}
+        finally:
+            s0.close()
+        allow_ids = set()
+        for d in defs:
+            if getattr(d, "pending", False) or d.id in existing:
+                continue
+            ok, detail = _verify_anchor(d, _root(d.location_repo))
+            verify[d.id] = {"green": ok, "detail": detail}
+            if ok:
+                allow_ids.add(d.id)
+
+    s = _session()
+    try:
+        st = Store(s)
+        plan = st.reconcile_invariants(
+            defs, domain_pack=a.domain_pack, apply=a.apply, allow_ids=allow_ids)
+        db_repos = {r["repo"] for r in st.invariant_rows()}
+    finally:
+        s.close()
+
+    # 结构性缺口:被审计 (bound) 但 catalog **和** DB 都一条不变量都没有的 repo —— 真空白,
+    # 只能人工 onboard (加分类规则 + hand-seed 锚定真实测试 + 进 inbox)。DB 里有 ratchet
+    # 行但 catalog 无条目的 repo (如 marshal/runner) 不算空白,故也从 db_repos 扣除。
+    catalog_repos = {d.location_repo for d in defs}
+    bound = {repo for _, repo in pr_inbox.bound_repos()}
+    coverage_gaps = sorted(bound - catalog_repos - db_repos)
+
+    return _emit({
+        "applied": a.apply, "verified": a.verify,
+        "counts": {k: len(v) for k, v in plan.items()},
+        "plan": plan,
+        "verify": verify,
+        "coverage_gaps_no_invariant": coverage_gaps,
+    })
 
 
 def _parse_repo_roots(specs):
@@ -867,6 +962,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     rro = sub.add_parser("review-run-open")
     rro.add_argument("--change-ref", dest="change_ref", required=True)
+    rro.add_argument("--expected-lenses-json", default="")
+    rro.add_argument("--expected-commands-json", default="")
+    rro.add_argument("--expected-external-scans-json", default="")
     rro.add_argument("--repo", default="")
     rro.add_argument("--mode", default="regular", choices=["regular", "deep"])
     rro.add_argument("--host", default="")
@@ -874,6 +972,16 @@ def build_parser() -> argparse.ArgumentParser:
     rro.add_argument("--skill-rev", dest="skill_rev", default="")
     rro.add_argument("--context-ref", dest="context_ref", default="")
     rro.set_defaults(func=cmd_review_run_open)
+
+    rrc = sub.add_parser("review-run-close")
+    rrc.add_argument("--run-id", dest="run_id", type=int, required=True)
+    rrc.add_argument("--status", required=True, choices=["complete", "degraded"])
+    rrc.add_argument("--evidence-json", dest="evidence_json", required=True)
+    rrc.set_defaults(func=cmd_review_run_close)
+
+    rrs = sub.add_parser("review-run-show")
+    rrs.add_argument("--run-id", dest="run_id", type=int, required=True)
+    rrs.set_defaults(func=cmd_review_run_show)
 
     fv = sub.add_parser("finding-verdict")
     fv.add_argument("--finding-id", dest="finding_id", type=int, required=True)
@@ -944,6 +1052,20 @@ def build_parser() -> argparse.ArgumentParser:
 
     mt = sub.add_parser("metrics")
     mt.set_defaults(func=cmd_metrics)
+
+    ri = sub.add_parser("reconcile-invariants",
+                        help="seed catalog invariants the DB registry is missing "
+                             "(dry-run unless --apply); reports per-repo coverage gaps")
+    ri.add_argument("--apply", action="store_true",
+                    help="write the missing invariants (default: dry-run report only)")
+    ri.add_argument("--verify", action="store_true",
+                    help="run each candidate's anchor test first; seed only the green ones")
+    ri.add_argument("--workspace", default="/home/ubuntu/workspace",
+                    help="root holding the per-repo checkouts (used by --verify)")
+    ri.add_argument("--repo-root", action="append", default=[],
+                    help="override a repo's checkout path: repo=/abs/path (repeatable)")
+    ri.add_argument("--domain-pack", dest="domain_pack", default="cowboy")
+    ri.set_defaults(func=cmd_reconcile_invariants)
 
     wd = sub.add_parser("worktree-diff")
     wd.add_argument("--repo-root", default=".")

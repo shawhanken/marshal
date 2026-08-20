@@ -62,3 +62,33 @@ def test_ratchet_guidance_allows_proptest_for_functional_property():
         g = PACK.ratchet_guidance(rc)
         assert g["invariant_able"] is True
         assert g["preferred_shape"] == "proptest"
+
+
+def test_wallet_signing_diff_triggers_blind_signing_hazard():
+    # wallet 是 JS,无机械锚 —— 阶段二 review-hazard 是唯一覆盖形式。
+    hz = PACK.security_hazards({"repo": "wallet", "diff_paths": ["src/lib/sign-binding.js"]})
+    h = next((h for h in hz if h["id"] == "wallet-blind-signing-intent-binding"), None)
+    assert h is not None
+    assert h["invariant_able"] is False        # 否定性属性,不可往返化
+    assert PACK.classify_detailed(
+        {"repo": "wallet", "diff_paths": ["src/lib/sign-binding.js"]})["tier"] == "high"
+
+
+def test_store_admin_privileged_diff_triggers_authz_hazard():
+    hz = PACK.security_hazards(
+        {"repo": "store-admin", "diff_paths": ["src/services/approval-orchestrator.ts"]})
+    assert any(h["id"] == "store-admin-privileged-op-authz-and-db-boundary" for h in hz)
+
+
+def test_review_invariants_are_catalog_only_never_mechanically_dispatched():
+    # review-hazard 不变量必须在全量 catalog (供 reconcile seed),但绝不进 list_invariants
+    # —— 否则机械门禁会去跑一条无 run_command 的检查,报假 degraded。
+    catalog = {d.id: d for d in PACK.all_invariant_defs()}
+    for iid, repo, path in [
+            ("wallet.no_blind_signing_intent_binding", "wallet", "src/lib/sign-binding.js"),
+            ("store-admin.privileged_op_server_authz", "store-admin",
+             "src/services/approval-orchestrator.ts")]:
+        d = catalog.get(iid)
+        assert d is not None and d.executor_kind == "review-hazard" and d.run_command == []
+        dispatched = {i.id for i in PACK.list_invariants({"repo": repo, "diff_paths": [path]})}
+        assert iid not in dispatched

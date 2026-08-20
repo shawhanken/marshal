@@ -50,6 +50,7 @@ description: Use when reviewing a change before merge — runs the Marshal quali
 - `/marshal ratchet "<bug>"` → 流 C
 - `/marshal conformance` → ⑤ 规格符合度报告(见 `references/conformance-flow.md`)
 - `/marshal metrics` → ⑦ 度量报告:`cli metrics`(不变量数/棘轮增量/逃逸开关/门禁判决分布);conformance% 另跑 `/marshal conformance`。诚实呈现 `unavailable` 指标,不补造数
+- `/marshal reconcile [--apply]` → 运维(**非逐-PR 审查**):对账 DB registry 与 pack catalog。`cli reconcile-invariants` —— 默认 dry-run 报告「catalog 有但 DB 没被任何 PR 触发过」的不变量 + 每仓 `coverage_gaps`(catalog∪DB 都=0 的 bound repo);`--apply` 补种(等同模拟所有 catalog 路径被 PR 触发登记,安全:pending 跳过、已有不覆盖、origin 从 escape 反查);`--verify` 先在各 repo checkout 跑锚定测试,只种会绿的(彻底防幽灵)。dashboard 的 Invariants 页也可一键触发同一流程。**不发明新不变量**(那靠流 C 棘轮 / onboarding)
 - 若流 A 的 diff 命中规格层文件(cowboy `docs/cips/**` 或 `docs/whitepaper/**`)→ 叠加流 B(见下)
 
 ## 流 A — 门禁评估
@@ -61,7 +62,8 @@ description: Use when reviewing a change before merge — runs the Marshal quali
 4. 按 `review_dimensions` 调 `/code-review ultra`(高危全视角)做对抗式 review,默认怀疑。
    若 classify 返回 `security_hazards`(否定性属性,如机密性),把每条 `prompt` 注入
    security lens —— 这类洞**不变量门禁抓不到**(往返测试在脆弱构造上为绿),只能靠 review。
-5. 汇总 `GateDecision`:任一不变量 fail→block;高危+确认高severity发现→escalate;跑不起来/超预算→escalate+degraded;否则 pass。
+   在派发前执行 review-run-open 保存 run_id 和不可变的审计计划（expected lenses/commands/external scans）；在聚合、终审和外部检查结束后执行 review-run-close，将所有步骤、计划内 lens、命令、测试和外部扫描状态写入 evidence manifest。finding-verdict 必须在 close 前执行；关闭后的 run（包括 findings 和 verdict）不可再写入。任何不可用或未返回项都必须关闭为 degraded，并在最终报告引用 run_id。
+   Complete 还要求有效的 40/64 位十六进制 head/base/tree SHA、platform/worktree/toolchain/context_ref、严格的 closure/scout/prove/invariant 四阶段和与 open 计划一致的 lens/command/scan 名称；pass 命令必须带 argv、整数 exit_code、log_ref 且 exit 0。
 6. `cli gate-record` 落库;有 PR# 且用户要 → 贴 PR 评论;终端打印摘要。
 7. 若在已合并代码上确认高severity发现 → 提议转流 C。
 
@@ -83,6 +85,10 @@ description: Use when reviewing a change before merge — runs the Marshal quali
 4. `cli ratchet-close --escape-id <id> --spawned-check <inv-id> --inv-json '<InvariantDef字段>'`。
    (spawned_check 为空 CLI 会拒绝 — 这是棘轮纪律,不要绕过。)
 5. 提示去 `<repo>` 把这条 proptest 真正实现;可顺手起草测试骨架。
+
+## 证据清单（Codex/Claude 共用）
+
+每次审计都应在 `review-run-open` 后记录一个可复核的 evidence manifest，并在审计结束时用 `review-run-close` 关闭。manifest 记录 head/base/tree、工作区与工具链、closure/scout/prove/invariant 状态、预定与实际返回的 lenses、命令/测试计数和日志引用、外部扫描状态；`review-run-show` 用于回读和横向比较。`complete` 不是“没有发现”：只有所有预定步骤、lenses、命令和外部扫描都完成时才允许使用；不可用资源必须标为 `degraded`/`unavailable` 并说明原因，不能把“扫描不可用”写成零 findings。 关闭后的 run 是终态；evidence 的 head_sha 必须绑定 change_ref，且不得再覆盖 evidence 或 finding。complete 必须包含 closure/scout/prove/invariant 四个阶段、完整 lens 分区、带 argv/exit_code/log_ref 的命令记录和至少一条外部扫描记录。
 
 ## 铁律
 

@@ -49,6 +49,7 @@ description: Use when reviewing a change before merge in Codex — runs the Mars
 - $marshal ratchet "<bug>" → 流 C。
 - $marshal conformance → 规格符合度报告，见 references/conformance-flow.md。
 - $marshal metrics → cli metrics；conformance% 另跑 $marshal conformance。
+- $marshal reconcile [--apply] → 运维(非逐-PR 审查):cli reconcile-invariants,对账 DB registry 与 pack catalog。默认 dry-run 报告「catalog 有但 DB 未触发」的不变量 + 每仓 coverage_gaps;--apply 补种(pending 跳过、已有不覆盖、origin 从 escape 反查),--verify 先跑锚定测试只种会绿的。不发明新不变量(那靠棘轮/onboarding)。
 - 流 A 的 diff 命中 docs/cips/** 或 docs/whitepaper/** 时叠加流 B。
 
 ## 流 A — 门禁评估
@@ -59,7 +60,8 @@ description: Use when reviewing a change before merge in Codex — runs the Mars
 2. 对每个 repo 调 cli classify，得到 tier、reasons、contracts_hit、review_dimensions。
 3. 调 cli invariants，在被审代码的干净 worktree 运行每条 run_command。PR 模式使用 PR head SHA；本地模式使用当前 HEAD；跨 repo 契约使用目标 repo tip。绝不在落后的主工作树把 running 0 tests 当成功。
 4. 加载 references/review-orchestration.md，按 review_dimensions 调用 Codex 当前会话可用的 subagent 能力，每个 lens 一个独立 agent，并行完成后过 quorum。若 subagent 能力不可用，可顺序执行同样的 lenses；不得省略 lens 后声称审全。命中 security_hazards 时把每条 prompt 注入 security lens。
-5. 汇总 GateDecision：任一不变量 fail → block；高危且有确认的 high finding → escalate；任何步骤跑不起来或超预算 → escalate + degraded；否则 pass。
+   在派发前执行 review-run-open 保存 run_id 和不可变的审计计划（expected lenses/commands/external scans）；在聚合、终审和外部检查结束后执行 review-run-close，将所有步骤、计划内 lens、命令、测试和外部扫描状态写入 evidence manifest。finding-verdict 必须在 close 前执行；关闭后的 run（包括 findings 和 verdict）不可再写入。任何不可用或未返回项都必须关闭为 degraded，并在最终报告引用 run_id。
+   Complete 还要求有效的 40/64 位十六进制 head/base/tree SHA、platform/worktree/toolchain/context_ref、严格的 closure/scout/prove/invariant 四阶段和与 open 计划一致的 lens/command/scan 名称；pass 命令必须带 argv、整数 exit_code、log_ref 且 exit 0。
 6. 调 cli gate-record 落库；只有用户明确要求时才贴 PR 评论；终端输出摘要。
 7. 若在已合并代码上确认 high finding，提议转流 C。
 
@@ -82,6 +84,10 @@ description: Use when reviewing a change before merge in Codex — runs the Mars
 - 并行 subagent 必须等待全部预定 lens 返回后才能聚合；缺席 lens 要标 degraded(lens-incomplete)。
 - 调用 subagent 时给出独立、具体、可收敛的 lens 任务；不要让多个 agent 修改同一文件。
 - MCP 只承担确定性的 plan-cost 工具调用；Marshal review 的判断和 GitHub 写操作仍遵守本技能的授权边界。
+
+## 证据清单（Codex/Claude 共用）
+
+每次审计都应在 `review-run-open` 后记录一个可复核的 evidence manifest，并在审计结束时用 `review-run-close` 关闭。manifest 记录 head/base/tree、工作区与工具链、closure/scout/prove/invariant 状态、预定与实际返回的 lenses、命令/测试计数和日志引用、外部扫描状态；`review-run-show` 用于回读和横向比较。`complete` 不是“没有发现”：只有所有预定步骤、lenses、命令和外部扫描都完成时才允许使用；不可用资源必须标为 `degraded`/`unavailable` 并说明原因，不能把“扫描不可用”写成零 findings。 关闭后的 run 是终态；evidence 的 head_sha 必须绑定 change_ref，且不得再覆盖 evidence 或 finding。complete 必须包含 closure/scout/prove/invariant 四个阶段、完整 lens 分区、带 argv/exit_code/log_ref 的命令记录和至少一条外部扫描记录。
 
 ## 铁律
 
