@@ -191,14 +191,13 @@ CONTRACTS = [
                             "node": ["ras/src/types", "ras/src/storage_keys",
                                      "ras/src/test_vectors"]},
              verify_invariants=["contract.ras_canonical_vectors"]),
-    # CIP-24 CBSS: 秘密释放管线的链上线格式. cbss daemon 的链类型/授权 (cbss-types,
-    # cbssd chain_tx/chain_authorizer) ↔ node types/src/cbss.rs (cowboy-types).
-    # 任一侧动这些类型 → 重跑 node 侧 CBSS 编码往返族 (release_request_body 为代表)。
-    Contract(id="cip24-cbss", repos=["cbss", "node"],
+    # CIP-24 consumers share the canonical wire codec in cowboy-protocol.
+    Contract(id="cip24-cbss", repos=["cbss", "node", "cowboy-protocol"],
              trigger_paths={"cbss": ["crates/cbss-types/src",
                                      "crates/cbssd/src/chain_tx",
                                      "crates/cbssd/src/chain_authorizer"],
-                            "node": ["types/src/cbss"]},
+                            "node": ["types/src/cbss"],
+                            "cowboy-protocol": ["crates/cowboy-protocol-codec/src/cbss.rs"]},
              verify_invariants=["contract.cbss_wire_round_trip"]),
     # System-actor address allocation: the WP §9.1 address space is allocated by
     # spec (whitepaper/CIP) and pinned in code (node runner/src/system_actors.rs +
@@ -284,17 +283,19 @@ _CONTRACT_INVARIANTS = {
         severity="high",
         run_command=["cargo", "test", "-p", "cowboy-ras",
                      "locked_canonical_hashes_match_expected"]),
-    # 真实锚点: node/types/src/cbss.rs 的 CBSS 编码往返族, 以 release_request_body
-    # (CIP-24 释放请求核心线类型) 为代表 (已验证存在且绿)。mod tests, 用 module-path
-    # 子串过滤。
+    # Wire types moved out of node in COW-2360. Run the canonical codec test:
+    # it checks round trips and encoded sizes with/without the CIP-33 context,
+    # and pins the context's wire suffix. Keep exact matching and real execution;
+    # the reporter marks zero-pass cargo results as not_run/degraded.
     "contract.cbss_wire_round_trip": InvariantDef(
         id="contract.cbss_wire_round_trip", domain="cross-repo", spec_ref="CIP-24",
-        executor_kind="conformance-vector", location_repo="node",
-        location_path="types/src/cbss.rs",
-        location_test="cbss::tests::release_request_body_round_trip",
+        executor_kind="conformance-vector", location_repo="cowboy-protocol",
+        location_path="crates/cowboy-protocol-codec/src/cbss.rs",
+        location_test="cbss::tests::release_request_body_cip33_context_has_canonical_wire_suffix",
         severity="high",
-        run_command=["cargo", "test", "-p", "cowboy-types",
-                     "cbss::tests::release_request_body_round_trip"]),
+        run_command=["cargo", "test", "--locked", "-p", "cowboy-protocol-codec", "--lib",
+                     "cbss::tests::release_request_body_cip33_context_has_canonical_wire_suffix",
+                     "--", "--exact"]),
 }
 
 # State/consensus invariant family — harvested from the knowledge core into the

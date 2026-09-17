@@ -1,4 +1,6 @@
 import json
+import pytest
+from marshal_pack_cowboy.pack import CowboyPack
 from marshal_core.executor import reporter
 
 
@@ -222,3 +224,36 @@ def test_reporter_rejects_malformed_lossless_paths():
     import pytest
     with pytest.raises(ValueError, match="NUL terminated"):
         reporter._decode_diff_paths(reporter.base64.b64encode(b"src/x.rs").decode())
+
+
+@pytest.mark.parametrize(("returncode", "output", "status", "passed"), [
+    (0, "test result: ok. 1 passed; 0 failed; 0 ignored", "ok", True),
+    (0, "test result: ok. 0 passed; 0 failed; 0 ignored; 82 filtered out", "degraded", None),
+    (0, "test result: ok. 0 passed; 0 failed; 1 ignored", "degraded", None),
+    (101, "test result: FAILED. 0 passed; 1 failed; 0 ignored", "ok", False),
+])
+def test_registered_cbss_wire_gate_requires_a_real_passing_test(
+        monkeypatch, returncode, output, status, passed):
+    inv = next(i for i in CowboyPack().list_invariants({
+        "repo": "cbss", "diff_paths": ["crates/cbss-types/src/lib.rs"],
+    }) if i.id == "contract.cbss_wire_round_trip")
+    posted = {}
+    _patch_brain(monkeypatch, [{
+        "invariant_id": inv.id, "run_command": inv.run_command,
+        "location_repo": inv.location_repo, "executor_kind": inv.executor_kind,
+    }], posted)
+
+    def fake_run(argv, **kwargs):
+        assert argv == inv.run_command
+        return _Proc(returncode, output)
+
+    monkeypatch.setattr(reporter.subprocess, "run", fake_run)
+    reporter.run("http://brain", inv.location_repo, "codec-revision", [inv.location_path])
+    body = posted["body"]
+    assert body["status"] == status
+    if passed is None:
+        assert body["payload"]["results"] == []
+        assert body["payload"]["not_run"][0]["invariant_id"] == inv.id
+    else:
+        assert body["payload"]["not_run"] == []
+        assert body["payload"]["results"][0]["passed"] is passed

@@ -45,16 +45,18 @@ def test_cip9_ras_contract_fires_on_both_sides():
     assert "cip9-ras" in node
 
 
-def test_cip24_cbss_contract_fires_on_both_sides():
+def test_cip24_cbss_contract_fires_on_consumers_and_codec_owner():
     cbss = PACK.contracts_hit(
         {"repo": "cbss", "diff_paths": ["crates/cbss-types/src/lib.rs"]})
     assert "cip24-cbss" in cbss
     node = PACK.contracts_hit({"repo": "node", "diff_paths": ["types/src/cbss.rs"]})
     assert "cip24-cbss" in node
+    owner = PACK.contracts_hit({"repo": "cowboy-protocol",
+                               "diff_paths": ["crates/cowboy-protocol-codec/src/cbss.rs"]})
+    assert "cip24-cbss" in owner
 
 
-def test_contract_invariants_point_at_node_anchor_tests():
-    # 契约校验跑在 node 侧 (字节兼容守护住在 node)。
+def test_contract_invariants_point_at_their_current_codec_owners():
     invs = {i.id: i for i in PACK.list_invariants(
         {"repo": "cbfs", "diff_paths": ["manifest/src/lib.rs"]})}
     assert "contract.ras_canonical_vectors" in invs
@@ -65,7 +67,17 @@ def test_contract_invariants_point_at_node_anchor_tests():
     invs2 = {i.id: i for i in PACK.list_invariants(
         {"repo": "cbss", "diff_paths": ["crates/cbss-types/src/lib.rs"]})}
     assert "contract.cbss_wire_round_trip" in invs2
-    assert invs2["contract.cbss_wire_round_trip"].location_repo == "node"
+    cbss = invs2["contract.cbss_wire_round_trip"]
+    assert cbss.location_repo == "cowboy-protocol"
+    assert cbss.location_path == "crates/cowboy-protocol-codec/src/cbss.rs"
+    assert cbss.run_command == [
+        "cargo", "test", "--locked", "-p", "cowboy-protocol-codec", "--lib",
+        cbss.location_test, "--", "--exact",
+    ]
+    owner_invariants = PACK.list_invariants({
+        "repo": cbss.location_repo, "diff_paths": [cbss.location_path],
+    })
+    assert cbss in owner_invariants
 
 
 def test_cip9_and_cip24_now_in_conformance_matrix():
