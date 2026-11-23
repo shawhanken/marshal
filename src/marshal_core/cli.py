@@ -26,7 +26,9 @@ from marshal_core.onboard.detect import detect_repo
 from marshal_core.onboard.report import tech_debt_signals
 from marshal_core.plangate.service import plan_review, isolated_store
 from marshal_core.review import (
+    QUALITY_LENSES, adaptive_closure_budget, adaptive_pr_cap,
     aggregate_review, assign_refute_lenses, ratchet_lenses, verify_findings,
+    select_pr_findings,
 )
 from marshal_pack_cowboy.pack import CowboyPack
 
@@ -384,8 +386,36 @@ def cmd_finding_verdict(a) -> int:
 
 
 def cmd_refute_lenses(a) -> int:
-    # ③ 二段 skeptic 视角多样化: 给 N 个 skeptic 轮转分配互异 refute lens (领域无关)。
-    return _emit({"count": a.count, "lenses": assign_refute_lenses(a.count)})
+    lenses = assign_refute_lenses(a.count, dimension=getattr(a, "dimension", None))
+    return _emit({"count": a.count, "dimension": getattr(a, "dimension", None), "lenses": lenses})
+
+
+def cmd_review_select(a) -> int:
+    candidates = json.loads(a.findings_json)
+    changed = a.changed_files if a.changed_files else None
+    selected = select_pr_findings(
+        candidates,
+        changed_files=changed,
+        changed_lines=a.changed_lines,
+        base_cap=a.base_cap,
+        max_cap=a.max_cap,
+    )
+    cap = adaptive_pr_cap(
+        changed_lines=a.changed_lines,
+        changed_files=changed,
+        base_cap=a.base_cap,
+        max_cap=a.max_cap,
+    )
+    budget = adaptive_closure_budget(
+        changed_lines=a.changed_lines,
+        file_count=len(changed) if changed else 1,
+    )
+    return _emit({
+        "count": len(selected),
+        "cap": cap,
+        "closure_budget": budget,
+        "selected": selected,
+    })
 
 
 def cmd_review_lenses(a) -> int:
@@ -407,8 +437,9 @@ def cmd_review_lenses(a) -> int:
             s.close()
         ratchet = [{"name": lp["name"], "prompt": lp["prompt"]}
                    for lp in ratchet_lenses(rows, max_lenses=a.ratchet_top)]
-    out = {"base": base, "hazards": hazards, "ratchet": ratchet,
-           "all": base + hazards + ratchet}
+   quality = [dict(q) for q in QUALITY_LENSES] if getattr(a, "include_quality", False) else []
+    out = {"base": base, "hazards": hazards, "ratchet": ratchet, "quality": quality,
+           "all": base + hazards + ratchet + quality}
     # 空逃逸史是完整的“没有历史探针”结果，不是工具失败。deep 可用通用 fallback
     # lenses 补足 scout 多样性，同时如实呈现没有 ratchet 样本。
     if a.ratchet_top and a.ratchet_top > 0 and not ratchet:
@@ -990,9 +1021,19 @@ def build_parser() -> argparse.ArgumentParser:
     fv.add_argument("--note", default="")
     fv.set_defaults(func=cmd_finding_verdict)
 
-    rl = sub.add_parser("refute-lenses")
+   rl = sub.add_parser("refute-lenses")
     rl.add_argument("--count", type=int, required=True)
+    rl.add_argument("--dimension", default=None,
+                    help="optional finding dimension; non-trigger dimensions omit crash-trigger lenses")
     rl.set_defaults(func=cmd_refute_lenses)
+
+    rvs = sub.add_parser("review-select")
+    rvs.add_argument("--findings-json", dest="findings_json", required=True)
+    rvs.add_argument("--changed-files", dest="changed_files", nargs="*", default=None)
+    rvs.add_argument("--changed-lines", dest="changed_lines", type=int, default=0)
+    rvs.add_argument("--base-cap", dest="base_cap", type=int, default=10)
+    rvs.add_argument("--max-cap", dest="max_cap", type=int, default=28)
+    rvs.set_defaults(func=cmd_review_select)
 
     rvl = sub.add_parser("review-lenses")
     rvl.add_argument("--repo", required=True)
@@ -1001,6 +1042,8 @@ def build_parser() -> argparse.ArgumentParser:
     rvl.add_argument("--ratchet-top", dest="ratchet_top", type=int, default=0,
                      help="append N ratchet probes (deep mode); 0 = regular (base only)")
     rvl.add_argument("--ratchet-domain-pack", dest="ratchet_domain_pack", default=None)
+    rvl.add_argument("--include-quality", dest="include_quality", action="store_true",
+                     help="append domain-agnostic maintainability & performance lenses")
     rvl.set_defaults(func=cmd_review_lenses)
 
     rtl = sub.add_parser("ratchet-lenses")
