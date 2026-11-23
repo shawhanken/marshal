@@ -437,7 +437,7 @@ def cmd_review_lenses(a) -> int:
             s.close()
         ratchet = [{"name": lp["name"], "prompt": lp["prompt"]}
                    for lp in ratchet_lenses(rows, max_lenses=a.ratchet_top)]
-   quality = [dict(q) for q in QUALITY_LENSES] if getattr(a, "include_quality", False) else []
+    quality = [dict(q) for q in QUALITY_LENSES] if getattr(a, "include_quality", False) else []
     out = {"base": base, "hazards": hazards, "ratchet": ratchet, "quality": quality,
            "all": base + hazards + ratchet + quality}
     # 空逃逸史是完整的“没有历史探针”结果，不是工具失败。deep 可用通用 fallback
@@ -1021,7 +1021,7 @@ def build_parser() -> argparse.ArgumentParser:
     fv.add_argument("--note", default="")
     fv.set_defaults(func=cmd_finding_verdict)
 
-   rl = sub.add_parser("refute-lenses")
+    rl = sub.add_parser("refute-lenses")
     rl.add_argument("--count", type=int, required=True)
     rl.add_argument("--dimension", default=None,
                     help="optional finding dimension; non-trigger dimensions omit crash-trigger lenses")
